@@ -38,3 +38,10 @@ create table if not exists shopping_list_items (
 alter table recipes enable row level security;
 alter table meal_plan enable row level security;
 alter table shopping_list_items enable row level security;
+
+-- RLS blocks row access without a matching policy, but table-level access is a
+-- separate Postgres GRANT layer underneath it. New Supabase projects usually
+-- set this up automatically for service_role, but it's not guaranteed —
+-- without it, even the service role key gets "permission denied for table".
+grant usage on schema public to service_role;
+grant all on public.recipes, public.meal_plan, public.shopping_list_items to service_role;

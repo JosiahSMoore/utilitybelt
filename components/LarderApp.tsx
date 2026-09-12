@@ -21,6 +21,7 @@ import {
   assignMealAction,
   clearMealAction,
   deleteRecipeAction,
+  deleteShoppingItemsAction,
   saveRecipeAction,
   syncShoppingListAction,
   toggleShoppingItemAction,
@@ -207,6 +208,21 @@ export default function LarderApp({
     }
   }
 
+  async function clearCheckedItems() {
+    const checkedIds = shoppingList.filter((i) => i.checked).map((i) => i.id);
+    if (checkedIds.length === 0) return;
+    const prev = shoppingList;
+    const next = shoppingList.filter((i) => !i.checked);
+    setShoppingList(next);
+    try {
+      await deleteShoppingItemsAction(checkedIds);
+      showToast("Removed purchased items.");
+    } catch {
+      setShoppingList(prev);
+      showToast("Couldn't clear checked items — try again.");
+    }
+  }
+
   const filteredRecipes = recipes.filter((r) => {
     const matchesQuery = r.name.toLowerCase().includes(browseQuery.toLowerCase());
     const matchesCategory = browseCategory === "All" || r.category === browseCategory;
@@ -299,6 +315,7 @@ export default function LarderApp({
             list={shoppingList}
             onToggle={toggleShoppingItem}
             onRebuild={buildShoppingList}
+            onClearChecked={clearCheckedItems}
           />
         )}
       </main>
@@ -1128,25 +1145,40 @@ function ShoppingListView({
   list,
   onToggle,
   onRebuild,
+  onClearChecked,
 }: {
   list: ShoppingItem[];
   onToggle: (id: string) => void;
   onRebuild: () => void;
+  onClearChecked: () => void;
 }) {
+  const sortedList = useMemo(
+    () => [...list].sort((a, b) => Number(a.checked) - Number(b.checked)),
+    [list]
+  );
+  const hasChecked = list.some((item) => item.checked);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="font-display text-2xl text-stone-900">Shopping list</h1>
-        <button onClick={onRebuild} className="text-sm font-medium text-emerald-800 hover:underline">
-          Rebuild from plan
-        </button>
+        <div className="flex items-center gap-4">
+          {hasChecked && (
+            <button onClick={onClearChecked} className="text-sm font-medium text-orange-700 hover:underline">
+              Clear checked
+            </button>
+          )}
+          <button onClick={onRebuild} className="text-sm font-medium text-emerald-800 hover:underline">
+            Rebuild from plan
+          </button>
+        </div>
       </div>
 
       {list.length === 0 ? (
         <EmptyState title="No shopping list yet" body="Plan some meals for the week, then build your list from there." />
       ) : (
         <div className="bg-amber-50 border border-stone-200 rounded-2xl divide-y divide-stone-100">
-          {list.map((item) => (
+          {sortedList.map((item) => (
             <button key={item.id} onClick={() => onToggle(item.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
               <span
                 className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${

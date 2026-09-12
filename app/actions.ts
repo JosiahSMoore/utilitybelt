@@ -126,3 +126,10 @@ export async function toggleShoppingItemAction(
     .eq("id", id);
   if (error) throw new Error(error.message);
 }
+
+export async function deleteShoppingItemsAction(ids: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("shopping_list_items").delete().in("id", ids);
+  if (error) throw new Error(error.message);
+}
