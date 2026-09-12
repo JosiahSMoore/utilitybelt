@@ -139,6 +139,16 @@ type IngredientLibraryRow = {
   name: string;
   unit: string;
   calories_per_unit: number | string;
+  protein_per_unit: number | string;
+  fiber_per_unit: number | string;
+};
+
+type LibraryIngredientInput = {
+  name: string;
+  unit: string;
+  caloriesPerUnit: number;
+  proteinPerUnit: number;
+  fiberPerUnit: number;
 };
 
 function rowToLibraryIngredient(row: IngredientLibraryRow): LibraryIngredient {
@@ -147,16 +157,22 @@ function rowToLibraryIngredient(row: IngredientLibraryRow): LibraryIngredient {
     name: row.name,
     unit: row.unit,
     caloriesPerUnit: Number(row.calories_per_unit) || 0,
+    proteinPerUnit: Number(row.protein_per_unit) || 0,
+    fiberPerUnit: Number(row.fiber_per_unit) || 0,
   };
 }
 
-export async function saveLibraryIngredientAction(input: {
-  name: string;
-  unit: string;
-  caloriesPerUnit: number;
-}): Promise<LibraryIngredient> {
+export async function saveLibraryIngredientAction(
+  input: LibraryIngredientInput
+): Promise<LibraryIngredient> {
   const supabase = createAdminClient();
   const name = input.name.trim();
+  const payload = {
+    unit: input.unit,
+    calories_per_unit: input.caloriesPerUnit,
+    protein_per_unit: input.proteinPerUnit,
+    fiber_per_unit: input.fiberPerUnit,
+  };
 
   const { data: existing, error: findError } = await supabase
     .from("ingredients")
@@ -166,11 +182,8 @@ export async function saveLibraryIngredientAction(input: {
   if (findError) throw new Error(findError.message);
 
   const query = existing
-    ? supabase
-        .from("ingredients")
-        .update({ unit: input.unit, calories_per_unit: input.caloriesPerUnit })
-        .eq("id", existing.id)
-    : supabase.from("ingredients").insert({ name, unit: input.unit, calories_per_unit: input.caloriesPerUnit });
+    ? supabase.from("ingredients").update(payload).eq("id", existing.id)
+    : supabase.from("ingredients").insert({ name, ...payload });
 
   const { data, error } = await query.select().single<IngredientLibraryRow>();
   if (error || !data) throw new Error(error?.message || "Failed to save ingredient.");
@@ -180,12 +193,18 @@ export async function saveLibraryIngredientAction(input: {
 
 export async function updateLibraryIngredientAction(
   id: string,
-  input: { name: string; unit: string; caloriesPerUnit: number }
+  input: LibraryIngredientInput
 ): Promise<LibraryIngredient> {
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("ingredients")
-    .update({ name: input.name.trim(), unit: input.unit, calories_per_unit: input.caloriesPerUnit })
+    .update({
+      name: input.name.trim(),
+      unit: input.unit,
+      calories_per_unit: input.caloriesPerUnit,
+      protein_per_unit: input.proteinPerUnit,
+      fiber_per_unit: input.fiberPerUnit,
+    })
     .eq("id", id)
     .select()
     .single<IngredientLibraryRow>();

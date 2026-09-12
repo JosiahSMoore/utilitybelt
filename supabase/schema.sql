@@ -49,6 +49,11 @@ create table if not exists ingredients (
   created_at timestamptz not null default now()
 );
 
+-- Added after the table's initial creation — "add column if not exists" so
+-- this stays safe to run against a project that already has the table.
+alter table ingredients add column if not exists protein_per_unit numeric not null default 0;
+alter table ingredients add column if not exists fiber_per_unit numeric not null default 0;
+
 create unique index if not exists ingredients_name_lower_idx on ingredients (lower(name));
 
 alter table recipes enable row level security;

@@ -11,6 +11,8 @@ export function emptyIngredient(): Ingredient {
     quantity: "",
     unit: "g",
     calories: "",
+    protein: "",
+    fiber: "",
     libraryId: null,
     servingMode: "whole",
   };
@@ -27,20 +29,32 @@ export function emptyRecipe(): Recipe {
   };
 }
 
-export function recipeCalories(recipe: Recipe) {
+function sumIngredientField(recipe: Recipe, field: "calories" | "protein" | "fiber") {
   const servings = parseFloat(String(recipe.servings)) || 1;
   let wholeTotal = 0;
   let perServingTotal = 0;
   (recipe.ingredients || []).forEach((i) => {
-    const cals = parseFloat(i.calories) || 0;
+    const value = parseFloat(i[field]) || 0;
     if (i.servingMode === "perServing") {
-      perServingTotal += cals;
+      perServingTotal += value;
     } else {
-      wholeTotal += cals;
+      wholeTotal += value;
     }
   });
   const perServing = wholeTotal / servings + perServingTotal;
   return { total: Math.round(perServing * servings), perServing: Math.round(perServing) };
+}
+
+export function recipeCalories(recipe: Recipe) {
+  return sumIngredientField(recipe, "calories");
+}
+
+export function recipeProtein(recipe: Recipe) {
+  return sumIngredientField(recipe, "protein");
+}
+
+export function recipeFiber(recipe: Recipe) {
+  return sumIngredientField(recipe, "fiber");
 }
 
 export type PlanDay = {

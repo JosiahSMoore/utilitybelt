@@ -62,6 +62,8 @@ export default async function Page() {
     name: row.name,
     unit: row.unit,
     caloriesPerUnit: Number(row.calories_per_unit) || 0,
+    proteinPerUnit: Number(row.protein_per_unit) || 0,
+    fiberPerUnit: Number(row.fiber_per_unit) || 0,
   }));
 
   return (

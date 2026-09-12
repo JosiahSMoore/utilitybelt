@@ -16,6 +16,8 @@ import {
   Printer,
   Check,
   Flame,
+  Dumbbell,
+  Wheat,
 } from "lucide-react";
 import {
   assignMealAction,
@@ -30,7 +32,15 @@ import {
   updateLibraryIngredientAction,
 } from "@/app/actions";
 import { CATEGORIES, CATEGORY_STYLE, MEAL_SLOTS, SLOT_LABEL, UNITS } from "@/lib/constants";
-import { emptyIngredient, emptyRecipe, generateId, getNext7Days, recipeCalories } from "@/lib/helpers";
+import {
+  emptyIngredient,
+  emptyRecipe,
+  generateId,
+  getNext7Days,
+  recipeCalories,
+  recipeFiber,
+  recipeProtein,
+} from "@/lib/helpers";
 import type {
   Ingredient,
   LibraryIngredient,
@@ -48,6 +58,34 @@ type View =
   | "mealPlan"
   | "shoppingList"
   | "ingredientLibrary";
+
+type DayNutrition = { calories: number; protein: number; fiber: number };
+
+type LibraryIngredientInput = {
+  name: string;
+  unit: string;
+  caloriesPerUnit: number;
+  proteinPerUnit: number;
+  fiberPerUnit: number;
+};
+
+function NutritionChips({ nutrition, size = "sm" }: { nutrition: DayNutrition; size?: "sm" | "xs" }) {
+  const textSize = size === "xs" ? "text-[10px]" : "text-sm";
+  const iconSize = size === "xs" ? 9 : 15;
+  return (
+    <div className={`flex items-center gap-3 font-medium ${textSize}`}>
+      <span className="flex items-center gap-1 text-orange-800">
+        <Flame size={iconSize} /> {nutrition.calories} cal
+      </span>
+      <span className="flex items-center gap-1 text-emerald-800">
+        <Dumbbell size={iconSize} /> {nutrition.protein}g
+      </span>
+      <span className="flex items-center gap-1 text-amber-800">
+        <Wheat size={iconSize} /> {nutrition.fiber}g
+      </span>
+    </div>
+  );
+}
 
 function useToast(): [string | null, (msg: string) => void] {
   const [message, setMessage] = useState<string | null>(null);
@@ -157,12 +195,20 @@ export default function LarderApp({
     }
   }
 
-  function dayCalories(date: string) {
+  function dayNutrition(date: string) {
     const slots = mealPlan[date] || {};
-    return MEAL_SLOTS.reduce((sum, mt) => {
-      const r = recipes.find((rc) => rc.id === slots[mt]);
-      return sum + (r ? recipeCalories(r).perServing : 0);
-    }, 0);
+    return MEAL_SLOTS.reduce(
+      (acc, mt) => {
+        const r = recipes.find((rc) => rc.id === slots[mt]);
+        if (!r) return acc;
+        return {
+          calories: acc.calories + recipeCalories(r).perServing,
+          protein: acc.protein + recipeProtein(r).perServing,
+          fiber: acc.fiber + recipeFiber(r).perServing,
+        };
+      },
+      { calories: 0, protein: 0, fiber: 0 }
+    );
   }
 
   async function buildShoppingList() {
@@ -244,11 +290,9 @@ export default function LarderApp({
     }
   }
 
-  async function saveLibraryIngredient(input: {
-    name: string;
-    unit: string;
-    caloriesPerUnit: number;
-  }): Promise<LibraryIngredient | null> {
+  async function saveLibraryIngredient(
+    input: LibraryIngredientInput
+  ): Promise<LibraryIngredient | null> {
     try {
       const saved = await saveLibraryIngredientAction(input);
       setIngredientLibrary((prev) => {
@@ -265,7 +309,7 @@ export default function LarderApp({
 
   async function updateLibraryIngredient(
     id: string,
-    input: { name: string; unit: string; caloriesPerUnit: number }
+    input: LibraryIngredientInput
   ): Promise<LibraryIngredient | null> {
     try {
       const saved = await updateLibraryIngredientAction(id, input);
@@ -310,7 +354,7 @@ export default function LarderApp({
             recipes={recipes}
             days={days}
             todaysPlan={todaysPlan}
-            dayCalories={dayCalories}
+            dayNutrition={dayNutrition}
             setView={setView}
             setEditingRecipe={setEditingRecipe}
           />
@@ -384,7 +428,7 @@ export default function LarderApp({
             days={days}
             mealPlan={mealPlan}
             recipes={recipes}
-            dayCalories={dayCalories}
+            dayNutrition={dayNutrition}
             activeDayIdx={activeDayIdx}
             setActiveDayIdx={setActiveDayIdx}
             openPicker={(date, slot) => setPickerSlot({ date, slot })}
@@ -512,14 +556,14 @@ function HomeView({
   recipes,
   days,
   todaysPlan,
-  dayCalories,
+  dayNutrition,
   setView,
   setEditingRecipe,
 }: {
   recipes: Recipe[];
   days: ReturnType<typeof getNext7Days>;
   todaysPlan: MealPlan[string];
-  dayCalories: (date: string) => number;
+  dayNutrition: (date: string) => DayNutrition;
   setView: (v: View) => void;
   setEditingRecipe: (r: Recipe | null) => void;
 }) {
@@ -538,13 +582,11 @@ function HomeView({
       </div>
 
       <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5 mb-8">
-        <div className="flex items-baseline justify-between mb-4">
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
           <h2 className="font-display text-xl text-stone-900">
             Today · {today.weekday} {today.month} {today.dayNum}
           </h2>
-          <span className="flex items-center gap-1 text-orange-800 text-sm font-medium">
-            <Flame size={15} /> {dayCalories(today.date)} cal
-          </span>
+          <NutritionChips nutrition={dayNutrition(today.date)} />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {MEAL_SLOTS.map((slot) => {
@@ -854,11 +896,7 @@ function RecipeForm({
   onCancel: () => void;
   onSave: (r: Recipe) => void;
   ingredientLibrary: LibraryIngredient[];
-  onSaveLibraryIngredient: (input: {
-    name: string;
-    unit: string;
-    caloriesPerUnit: number;
-  }) => Promise<LibraryIngredient | null>;
+  onSaveLibraryIngredient: (input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
 }) {
   const [recipe, setRecipe] = useState<Recipe>(initial);
 
@@ -1012,17 +1050,15 @@ function IngredientRow({
   onChange: <K extends keyof Ingredient>(field: K, value: Ingredient[K]) => void;
   onRemove: () => void;
   disableRemove: boolean;
-  onSaveNewLibraryIngredient: (input: {
-    name: string;
-    unit: string;
-    caloriesPerUnit: number;
-  }) => Promise<LibraryIngredient | null>;
+  onSaveNewLibraryIngredient: (input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [dismissedName, setDismissedName] = useState<string | null>(null);
   const [promptUnit, setPromptUnit] = useState(ingredient.unit);
   const [promptCalories, setPromptCalories] = useState("");
+  const [promptProtein, setPromptProtein] = useState("");
+  const [promptFiber, setPromptFiber] = useState("");
   const [saving, setSaving] = useState(false);
   const quantityRef = useRef<HTMLInputElement>(null);
 
@@ -1037,6 +1073,8 @@ function IngredientRow({
     onChange("name", lib.name);
     onChange("unit", lib.unit);
     onChange("calories", String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
+    onChange("protein", String(Math.round(lib.proteinPerUnit * qty * 100) / 100));
+    onChange("fiber", String(Math.round(lib.fiberPerUnit * qty * 100) / 100));
     onChange("libraryId", lib.id);
     setShowSuggestions(false);
     setShowSavePrompt(false);
@@ -1059,8 +1097,12 @@ function IngredientRow({
       if (ingredient.libraryId || dismissedName === name) return;
       const qty = parseFloat(ingredient.quantity) || 0;
       const cals = parseFloat(ingredient.calories) || 0;
+      const protein = parseFloat(ingredient.protein) || 0;
+      const fiber = parseFloat(ingredient.fiber) || 0;
       setPromptUnit(ingredient.unit);
       setPromptCalories(qty > 0 && cals > 0 ? String(Math.round((cals / qty) * 100) / 100) : "");
+      setPromptProtein(qty > 0 && protein > 0 ? String(Math.round((protein / qty) * 100) / 100) : "");
+      setPromptFiber(qty > 0 && fiber > 0 ? String(Math.round((fiber / qty) * 100) / 100) : "");
       setShowSavePrompt(true);
     }, 150);
   }
@@ -1073,6 +1115,8 @@ function IngredientRow({
       name: trimmedName,
       unit: promptUnit,
       caloriesPerUnit,
+      proteinPerUnit: parseFloat(promptProtein) || 0,
+      fiberPerUnit: parseFloat(promptFiber) || 0,
     });
     setSaving(false);
     if (saved) {
@@ -1089,27 +1133,22 @@ function IngredientRow({
   return (
     <div className="grid grid-cols-12 gap-2 items-start">
       <div className="col-span-4 relative">
-        <div className="relative">
-          <input
-            value={ingredient.name}
-            onChange={(e) => {
-              onChange("name", e.target.value);
-              if (ingredient.libraryId) onChange("libraryId", null);
-              setShowSuggestions(true);
-              setShowSavePrompt(false);
-            }}
-            onFocus={() => setShowSuggestions(true)}
-            onBlur={handleNameBlur}
-            placeholder="Ingredient"
-            className="w-full px-2.5 py-2 pr-7 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-          />
-          {exactMatch && (
-            <BookOpen
-              size={13}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-600"
-            />
-          )}
-        </div>
+        <input
+          value={ingredient.name}
+          onChange={(e) => {
+            onChange("name", e.target.value);
+            if (ingredient.libraryId) onChange("libraryId", null);
+            setShowSuggestions(true);
+            setShowSavePrompt(false);
+          }}
+          onFocus={() => setShowSuggestions(true)}
+          onBlur={handleNameBlur}
+          placeholder="Ingredient"
+          className="w-full px-2.5 py-2 pr-7 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+        {exactMatch && (
+          <BookOpen size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-600" />
+        )}
 
         {showSuggestions && suggestions.length > 0 && (
           <div className="absolute z-10 mt-1 w-full bg-white border border-stone-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
@@ -1127,45 +1166,6 @@ function IngredientRow({
                 </span>
               </button>
             ))}
-          </div>
-        )}
-
-        {showSavePrompt && (
-          <div className="mt-1.5 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs space-y-2">
-            <p className="text-stone-700">Save “{trimmedName}” to your ingredient library?</p>
-            <div className="flex gap-1.5">
-              <select
-                value={promptUnit}
-                onChange={(e) => setPromptUnit(e.target.value)}
-                className="px-1.5 py-1 rounded border border-stone-200 bg-white text-xs"
-              >
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={promptCalories}
-                onChange={(e) => setPromptCalories(e.target.value)}
-                placeholder="cal per unit"
-                className="flex-1 min-w-0 px-2 py-1 rounded border border-stone-200 bg-white text-xs"
-              />
-            </div>
-            <div className="flex justify-end gap-3">
-              <button type="button" onClick={dismissSavePrompt} className="text-stone-500 hover:underline">
-                Not now
-              </button>
-              <button
-                type="button"
-                onClick={confirmSaveToLibrary}
-                disabled={saving || !promptCalories}
-                className="text-emerald-800 font-medium hover:underline disabled:opacity-40"
-              >
-                Save to library
-              </button>
-            </div>
           </div>
         )}
       </div>
@@ -1230,6 +1230,76 @@ function IngredientRow({
       >
         <Trash2 size={15} />
       </button>
+
+      <div className="col-span-4"></div>
+      <input
+        type="number"
+        value={ingredient.protein}
+        onChange={(e) => onChange("protein", e.target.value)}
+        placeholder="Protein (g)"
+        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      />
+      <input
+        type="number"
+        value={ingredient.fiber}
+        onChange={(e) => onChange("fiber", e.target.value)}
+        placeholder="Fiber (g)"
+        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      />
+      <div className="col-span-4"></div>
+
+      {showSavePrompt && (
+        <div className="col-span-12 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs space-y-2">
+          <p className="text-stone-700">Save “{trimmedName}” to your ingredient library?</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            <select
+              value={promptUnit}
+              onChange={(e) => setPromptUnit(e.target.value)}
+              className="px-1.5 py-1 rounded border border-stone-200 bg-white text-xs"
+            >
+              {UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              value={promptCalories}
+              onChange={(e) => setPromptCalories(e.target.value)}
+              placeholder="Cal/unit"
+              className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+            />
+            <input
+              type="number"
+              value={promptProtein}
+              onChange={(e) => setPromptProtein(e.target.value)}
+              placeholder="Protein/unit"
+              className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+            />
+            <input
+              type="number"
+              value={promptFiber}
+              onChange={(e) => setPromptFiber(e.target.value)}
+              placeholder="Fiber/unit"
+              className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+            />
+          </div>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={dismissSavePrompt} className="text-stone-500 hover:underline">
+              Not now
+            </button>
+            <button
+              type="button"
+              onClick={confirmSaveToLibrary}
+              disabled={saving || !promptCalories}
+              className="text-emerald-800 font-medium hover:underline disabled:opacity-40"
+            >
+              Save to library
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1240,7 +1310,7 @@ function MealPlanView({
   days,
   mealPlan,
   recipes,
-  dayCalories,
+  dayNutrition,
   activeDayIdx,
   setActiveDayIdx,
   openPicker,
@@ -1249,7 +1319,7 @@ function MealPlanView({
   days: ReturnType<typeof getNext7Days>;
   mealPlan: MealPlan;
   recipes: Recipe[];
-  dayCalories: (date: string) => number;
+  dayNutrition: (date: string) => DayNutrition;
   activeDayIdx: number;
   setActiveDayIdx: (i: number) => void;
   openPicker: (date: string, slot: MealSlot) => void;
@@ -1284,15 +1354,24 @@ function MealPlanView({
       <div className="hidden md:block bg-amber-50 border border-stone-200 rounded-2xl overflow-hidden">
         <div className="grid grid-cols-8 border-b border-stone-200">
           <div className="p-3"></div>
-          {days.map((d) => (
-            <div key={d.date} className={`p-3 text-center ${d.isToday ? "bg-emerald-50" : ""}`}>
-              <p className="text-[11px] uppercase tracking-wide text-stone-400">{d.weekday}</p>
-              <p className="font-display text-lg text-stone-900">{d.dayNum}</p>
-              <p className="flex items-center justify-center gap-1 text-[11px] text-orange-800 font-medium mt-0.5">
-                <Flame size={10} /> {dayCalories(d.date)}
-              </p>
-            </div>
-          ))}
+          {days.map((d) => {
+            const n = dayNutrition(d.date);
+            return (
+              <div key={d.date} className={`p-3 text-center ${d.isToday ? "bg-emerald-50" : ""}`}>
+                <p className="text-[11px] uppercase tracking-wide text-stone-400">{d.weekday}</p>
+                <p className="font-display text-lg text-stone-900">{d.dayNum}</p>
+                <p className="flex items-center justify-center gap-1 text-[10px] text-orange-800 font-medium mt-0.5">
+                  <Flame size={9} /> {n.calories}
+                </p>
+                <p className="flex items-center justify-center gap-1 text-[10px] text-emerald-800 font-medium">
+                  <Dumbbell size={9} /> {n.protein}g
+                </p>
+                <p className="flex items-center justify-center gap-1 text-[10px] text-amber-800 font-medium">
+                  <Wheat size={9} /> {n.fiber}g
+                </p>
+              </div>
+            );
+          })}
         </div>
         {MEAL_SLOTS.map((slot) => (
           <div key={slot} className="grid grid-cols-8 border-b border-stone-100 last:border-0">
@@ -1335,13 +1414,11 @@ function MealPlanView({
           ))}
         </div>
 
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
           <p className="font-display text-lg text-stone-900">
             {activeDay.weekday} {activeDay.month} {activeDay.dayNum}
           </p>
-          <span className="flex items-center gap-1 text-orange-800 text-sm font-medium">
-            <Flame size={14} /> {dayCalories(activeDay.date)} cal
-          </span>
+          <NutritionChips nutrition={dayNutrition(activeDay.date)} />
         </div>
 
         <div className="space-y-2">
@@ -1530,15 +1607,8 @@ function IngredientLibraryView({
   onBack,
 }: {
   library: LibraryIngredient[];
-  onAdd: (input: {
-    name: string;
-    unit: string;
-    caloriesPerUnit: number;
-  }) => Promise<LibraryIngredient | null>;
-  onUpdate: (
-    id: string,
-    input: { name: string; unit: string; caloriesPerUnit: number }
-  ) => Promise<LibraryIngredient | null>;
+  onAdd: (input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
+  onUpdate: (id: string, input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
   onDelete: (id: string) => void;
   onBack: () => void;
 }) {
@@ -1547,6 +1617,8 @@ function IngredientLibraryView({
   const [formName, setFormName] = useState("");
   const [formUnit, setFormUnit] = useState("g");
   const [formCalories, setFormCalories] = useState("");
+  const [formProtein, setFormProtein] = useState("");
+  const [formFiber, setFormFiber] = useState("");
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -1558,6 +1630,8 @@ function IngredientLibraryView({
     setFormName("");
     setFormUnit("g");
     setFormCalories("");
+    setFormProtein("");
+    setFormFiber("");
   }
 
   function startEdit(ing: LibraryIngredient) {
@@ -1565,6 +1639,8 @@ function IngredientLibraryView({
     setFormName(ing.name);
     setFormUnit(ing.unit);
     setFormCalories(String(ing.caloriesPerUnit));
+    setFormProtein(String(ing.proteinPerUnit));
+    setFormFiber(String(ing.fiberPerUnit));
   }
 
   async function submitForm() {
@@ -1572,9 +1648,14 @@ function IngredientLibraryView({
     const caloriesPerUnit = parseFloat(formCalories);
     if (!name || Number.isNaN(caloriesPerUnit) || !editingId) return;
     setSaving(true);
-    const result = isAdding
-      ? await onAdd({ name, unit: formUnit, caloriesPerUnit })
-      : await onUpdate(editingId, { name, unit: formUnit, caloriesPerUnit });
+    const input: LibraryIngredientInput = {
+      name,
+      unit: formUnit,
+      caloriesPerUnit,
+      proteinPerUnit: parseFloat(formProtein) || 0,
+      fiberPerUnit: parseFloat(formFiber) || 0,
+    };
+    const result = isAdding ? await onAdd(input) : await onUpdate(editingId, input);
     setSaving(false);
     if (result) setEditingId(null);
   }
@@ -1614,6 +1695,10 @@ function IngredientLibraryView({
           setUnit={setFormUnit}
           calories={formCalories}
           setCalories={setFormCalories}
+          protein={formProtein}
+          setProtein={setFormProtein}
+          fiber={formFiber}
+          setFiber={setFormFiber}
           onCancel={() => setEditingId(null)}
           onSubmit={submitForm}
           saving={saving}
@@ -1642,6 +1727,10 @@ function IngredientLibraryView({
                 setUnit={setFormUnit}
                 calories={formCalories}
                 setCalories={setFormCalories}
+                protein={formProtein}
+                setProtein={setFormProtein}
+                fiber={formFiber}
+                setFiber={setFormFiber}
                 onCancel={() => setEditingId(null)}
                 onSubmit={submitForm}
                 saving={saving}
@@ -1652,7 +1741,8 @@ function IngredientLibraryView({
                 <div>
                   <p className="text-sm font-medium text-stone-800">{ing.name}</p>
                   <p className="text-xs text-stone-400">
-                    {ing.caloriesPerUnit} cal/{ing.unit}
+                    {ing.caloriesPerUnit} cal · {ing.proteinPerUnit}g protein · {ing.fiberPerUnit}g fiber{" "}
+                    <span className="text-stone-300">/ {ing.unit}</span>
                   </p>
                 </div>
                 <div className="flex gap-1.5">
@@ -1697,6 +1787,10 @@ function IngredientLibraryForm({
   setUnit,
   calories,
   setCalories,
+  protein,
+  setProtein,
+  fiber,
+  setFiber,
   onCancel,
   onSubmit,
   saving,
@@ -1709,6 +1803,10 @@ function IngredientLibraryForm({
   setUnit: (v: string) => void;
   calories: string;
   setCalories: (v: string) => void;
+  protein: string;
+  setProtein: (v: string) => void;
+  fiber: string;
+  setFiber: (v: string) => void;
   onCancel: () => void;
   onSubmit: () => void;
   saving: boolean;
@@ -1717,7 +1815,7 @@ function IngredientLibraryForm({
   return (
     <div className={inline ? "p-4 bg-emerald-50" : "bg-amber-50 border border-stone-200 rounded-2xl p-4 mb-4"}>
       <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">{title}</p>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -1735,11 +1833,27 @@ function IngredientLibraryForm({
             </option>
           ))}
         </select>
+      </div>
+      <div className="grid grid-cols-3 gap-2 mb-3">
         <input
           type="number"
           value={calories}
           onChange={(e) => setCalories(e.target.value)}
-          placeholder="Calories per unit"
+          placeholder="Cal/unit"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+        <input
+          type="number"
+          value={protein}
+          onChange={(e) => setProtein(e.target.value)}
+          placeholder="Protein/unit (g)"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+        <input
+          type="number"
+          value={fiber}
+          onChange={(e) => setFiber(e.target.value)}
+          placeholder="Fiber/unit (g)"
           className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
       </div>

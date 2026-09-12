@@ -8,6 +8,8 @@ export type Ingredient = {
   quantity: string;
   unit: string;
   calories: string;
+  protein: string;
+  fiber: string;
   // Reference to a shared library ingredient this line was filled from or
   // linked to. Always optional — this row's own quantity/unit/calories are
   // the source of truth for the recipe, this is just a backlink.
@@ -19,13 +21,15 @@ export type Ingredient = {
   servingMode?: ServingMode;
 };
 
-// A shared ingredient library entry. `caloriesPerUnit` is a RATE — calories
-// for one unit of `unit` — not a total, unlike Ingredient.calories.
+// A shared ingredient library entry. The *PerUnit fields are RATES — the
+// amount for one unit of `unit` — not totals, unlike Ingredient's fields.
 export type LibraryIngredient = {
   id: string;
   name: string;
   unit: string;
   caloriesPerUnit: number;
+  proteinPerUnit: number;
+  fiberPerUnit: number;
 };
 
 export type Recipe = {
