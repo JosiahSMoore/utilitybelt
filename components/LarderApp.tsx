@@ -985,10 +985,18 @@ function RecipeForm({
 
         <div className="space-y-2 mb-3">
           <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-            <span className="col-span-4">Ingredient</span>
-            <span className="col-span-2">Quantity</span>
-            <span className="col-span-2">Unit</span>
-            <span className="col-span-2">Calories</span>
+            <span className="col-span-5">Ingredient</span>
+            <span className="col-span-1">Qty</span>
+            <span className="col-span-1">Unit</span>
+            <span className="col-span-1 text-center" title="Calories">
+              <Flame size={11} className="inline" />
+            </span>
+            <span className="col-span-1 text-center" title="Protein (g)">
+              <Dumbbell size={11} className="inline" />
+            </span>
+            <span className="col-span-1 text-center" title="Fiber (g)">
+              <Wheat size={11} className="inline" />
+            </span>
             <span className="col-span-1 text-center" title="Whole recipe vs. per serving">
               Per svg
             </span>
@@ -1132,7 +1140,7 @@ function IngredientRow({
 
   return (
     <div className="grid grid-cols-12 gap-2 items-start">
-      <div className="col-span-4 relative">
+      <div className="col-span-5 relative">
         <input
           value={ingredient.name}
           onChange={(e) => {
@@ -1176,12 +1184,14 @@ function IngredientRow({
         value={ingredient.quantity}
         onChange={(e) => onChange("quantity", e.target.value)}
         placeholder="0"
-        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        title="Quantity"
+        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
       />
       <select
         value={ingredient.unit}
         onChange={(e) => onChange("unit", e.target.value)}
-        className="col-span-2 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        title="Unit"
+        className="col-span-1 px-1 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
       >
         {UNITS.map((u) => (
           <option key={u} value={u}>
@@ -1194,7 +1204,24 @@ function IngredientRow({
         value={ingredient.calories}
         onChange={(e) => onChange("calories", e.target.value)}
         placeholder="0"
-        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        title="Calories"
+        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      />
+      <input
+        type="number"
+        value={ingredient.protein}
+        onChange={(e) => onChange("protein", e.target.value)}
+        placeholder="0"
+        title="Protein (g)"
+        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      />
+      <input
+        type="number"
+        value={ingredient.fiber}
+        onChange={(e) => onChange("fiber", e.target.value)}
+        placeholder="0"
+        title="Fiber (g)"
+        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
       />
       <button
         type="button"
@@ -1230,23 +1257,6 @@ function IngredientRow({
       >
         <Trash2 size={15} />
       </button>
-
-      <div className="col-span-4"></div>
-      <input
-        type="number"
-        value={ingredient.protein}
-        onChange={(e) => onChange("protein", e.target.value)}
-        placeholder="Protein (g)"
-        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
-      />
-      <input
-        type="number"
-        value={ingredient.fiber}
-        onChange={(e) => onChange("fiber", e.target.value)}
-        placeholder="Fiber (g)"
-        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
-      />
-      <div className="col-span-4"></div>
 
       {showSavePrompt && (
         <div className="col-span-12 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs space-y-2">
