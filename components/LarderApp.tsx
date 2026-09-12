@@ -20,12 +20,14 @@ import {
 import {
   assignMealAction,
   clearMealAction,
+  deleteLibraryIngredientAction,
   deleteRecipeAction,
   deleteShoppingItemsAction,
   saveLibraryIngredientAction,
   saveRecipeAction,
   syncShoppingListAction,
   toggleShoppingItemAction,
+  updateLibraryIngredientAction,
 } from "@/app/actions";
 import { CATEGORIES, CATEGORY_STYLE, MEAL_SLOTS, SLOT_LABEL, UNITS } from "@/lib/constants";
 import { emptyIngredient, emptyRecipe, generateId, getNext7Days, recipeCalories } from "@/lib/helpers";
@@ -44,7 +46,8 @@ type View =
   | "browse"
   | "recipeDetail"
   | "mealPlan"
-  | "shoppingList";
+  | "shoppingList"
+  | "ingredientLibrary";
 
 function useToast(): [string | null, (msg: string) => void] {
   const [message, setMessage] = useState<string | null>(null);
@@ -260,6 +263,35 @@ export default function LarderApp({
     }
   }
 
+  async function updateLibraryIngredient(
+    id: string,
+    input: { name: string; unit: string; caloriesPerUnit: number }
+  ): Promise<LibraryIngredient | null> {
+    try {
+      const saved = await updateLibraryIngredientAction(id, input);
+      setIngredientLibrary((prev) =>
+        prev.map((i) => (i.id === saved.id ? saved : i)).sort((a, b) => a.name.localeCompare(b.name))
+      );
+      showToast("Ingredient updated.");
+      return saved;
+    } catch {
+      showToast("Couldn't update ingredient — that name might already be in use.");
+      return null;
+    }
+  }
+
+  async function deleteLibraryIngredient(id: string) {
+    const prev = ingredientLibrary;
+    setIngredientLibrary((cur) => cur.filter((i) => i.id !== id));
+    try {
+      await deleteLibraryIngredientAction(id);
+      showToast("Ingredient removed from library.");
+    } catch {
+      setIngredientLibrary(prev);
+      showToast("Couldn't delete ingredient — try again.");
+    }
+  }
+
   const filteredRecipes = recipes.filter((r) => {
     const matchesQuery = r.name.toLowerCase().includes(browseQuery.toLowerCase());
     const matchesCategory = browseCategory === "All" || r.category === browseCategory;
@@ -312,6 +344,17 @@ export default function LarderApp({
               setEditingRecipe(null);
               setView("addRecipe");
             }}
+            onManageIngredients={() => setView("ingredientLibrary")}
+          />
+        )}
+
+        {view === "ingredientLibrary" && (
+          <IngredientLibraryView
+            library={ingredientLibrary}
+            onAdd={saveLibraryIngredient}
+            onUpdate={updateLibraryIngredient}
+            onDelete={deleteLibraryIngredient}
+            onBack={() => setView("browse")}
           />
         )}
 
@@ -415,7 +458,10 @@ function NavItems({
   return (
     <>
       {items.map(({ key, label, Icon }) => {
-        const active = view === key || (key === "browse" && (view === "recipeDetail" || view === "addRecipe"));
+        const active =
+          view === key ||
+          (key === "browse" &&
+            (view === "recipeDetail" || view === "addRecipe" || view === "ingredientLibrary"));
         return (
           <button
             key={key}
@@ -589,6 +635,7 @@ function BrowseView({
   setCategory,
   onOpen,
   onAdd,
+  onManageIngredients,
 }: {
   recipes: Recipe[];
   query: string;
@@ -597,17 +644,26 @@ function BrowseView({
   setCategory: (c: string) => void;
   onOpen: (id: string) => void;
   onAdd: () => void;
+  onManageIngredients: () => void;
 }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
         <h1 className="font-display text-2xl text-stone-900">Recipes</h1>
-        <button
-          onClick={onAdd}
-          className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
-        >
-          <Plus size={15} /> Add
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onManageIngredients}
+            className="flex items-center gap-1.5 border border-stone-200 text-stone-600 text-sm font-medium px-3.5 py-2 rounded-full hover:bg-stone-100"
+          >
+            <BookOpen size={15} /> Manage ingredients
+          </button>
+          <button
+            onClick={onAdd}
+            className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+          >
+            <Plus size={15} /> Add
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
@@ -1460,6 +1516,245 @@ function ShoppingListView({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Ingredient Library ---------- */
+
+function IngredientLibraryView({
+  library,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onBack,
+}: {
+  library: LibraryIngredient[];
+  onAdd: (input: {
+    name: string;
+    unit: string;
+    caloriesPerUnit: number;
+  }) => Promise<LibraryIngredient | null>;
+  onUpdate: (
+    id: string,
+    input: { name: string; unit: string; caloriesPerUnit: number }
+  ) => Promise<LibraryIngredient | null>;
+  onDelete: (id: string) => void;
+  onBack: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formUnit, setFormUnit] = useState("g");
+  const [formCalories, setFormCalories] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const filtered = library.filter((i) => i.name.toLowerCase().includes(query.toLowerCase()));
+  const isAdding = editingId === "new";
+
+  function startAdd() {
+    setEditingId("new");
+    setFormName("");
+    setFormUnit("g");
+    setFormCalories("");
+  }
+
+  function startEdit(ing: LibraryIngredient) {
+    setEditingId(ing.id);
+    setFormName(ing.name);
+    setFormUnit(ing.unit);
+    setFormCalories(String(ing.caloriesPerUnit));
+  }
+
+  async function submitForm() {
+    const name = formName.trim();
+    const caloriesPerUnit = parseFloat(formCalories);
+    if (!name || Number.isNaN(caloriesPerUnit) || !editingId) return;
+    setSaving(true);
+    const result = isAdding
+      ? await onAdd({ name, unit: formUnit, caloriesPerUnit })
+      : await onUpdate(editingId, { name, unit: formUnit, caloriesPerUnit });
+    setSaving(false);
+    if (result) setEditingId(null);
+  }
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
+        <ChevronLeft size={16} /> Back to recipes
+      </button>
+
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="font-display text-2xl text-stone-900">Ingredient library</h1>
+        <button
+          onClick={startAdd}
+          className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+        >
+          <Plus size={15} /> Add ingredient
+        </button>
+      </div>
+
+      <div className="relative mb-5">
+        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search ingredients…"
+          className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+      </div>
+
+      {isAdding && (
+        <IngredientLibraryForm
+          title="New ingredient"
+          name={formName}
+          setName={setFormName}
+          unit={formUnit}
+          setUnit={setFormUnit}
+          calories={formCalories}
+          setCalories={setFormCalories}
+          onCancel={() => setEditingId(null)}
+          onSubmit={submitForm}
+          saving={saving}
+        />
+      )}
+
+      {library.length === 0 ? (
+        <EmptyState
+          title="No ingredients yet"
+          body="Add ingredients here, or save them straight from a recipe as you go."
+          actionLabel="Add ingredient"
+          onAction={startAdd}
+        />
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-stone-500 text-center py-10">No ingredients match “{query}”.</p>
+      ) : (
+        <div className="bg-amber-50 border border-stone-200 rounded-2xl divide-y divide-stone-100">
+          {filtered.map((ing) =>
+            editingId === ing.id ? (
+              <IngredientLibraryForm
+                key={ing.id}
+                title="Edit ingredient"
+                name={formName}
+                setName={setFormName}
+                unit={formUnit}
+                setUnit={setFormUnit}
+                calories={formCalories}
+                setCalories={setFormCalories}
+                onCancel={() => setEditingId(null)}
+                onSubmit={submitForm}
+                saving={saving}
+                inline
+              />
+            ) : (
+              <div key={ing.id} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-stone-800">{ing.name}</p>
+                  <p className="text-xs text-stone-400">
+                    {ing.caloriesPerUnit} cal/{ing.unit}
+                  </p>
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => startEdit(ing)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-stone-500 hover:bg-stone-100"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteId(ing.id)}
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-orange-700 hover:bg-orange-50"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      )}
+
+      {confirmDeleteId && (
+        <ConfirmModal
+          message="Delete this ingredient from your library? Recipes that already used it keep their own saved amounts — this only affects future autocomplete and autofill."
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => {
+            onDelete(confirmDeleteId);
+            setConfirmDeleteId(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function IngredientLibraryForm({
+  title,
+  name,
+  setName,
+  unit,
+  setUnit,
+  calories,
+  setCalories,
+  onCancel,
+  onSubmit,
+  saving,
+  inline,
+}: {
+  title: string;
+  name: string;
+  setName: (v: string) => void;
+  unit: string;
+  setUnit: (v: string) => void;
+  calories: string;
+  setCalories: (v: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+  saving: boolean;
+  inline?: boolean;
+}) {
+  return (
+    <div className={inline ? "p-4 bg-emerald-50" : "bg-amber-50 border border-stone-200 rounded-2xl p-4 mb-4"}>
+      <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">{title}</p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Ingredient name"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+        <select
+          value={unit}
+          onChange={(e) => setUnit(e.target.value)}
+          className="px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        >
+          {UNITS.map((u) => (
+            <option key={u} value={u}>
+              {u}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number"
+          value={calories}
+          onChange={(e) => setCalories(e.target.value)}
+          placeholder="Calories per unit"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <button onClick={onCancel} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
+          Cancel
+        </button>
+        <button
+          onClick={onSubmit}
+          disabled={saving || !name.trim() || !calories}
+          className="px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
 }

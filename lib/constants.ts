@@ -1,6 +1,6 @@
 import type { MealSlot } from "./types";
 
-export const UNITS = ["g", "oz", "kg", "lb", "ml", "l", "cup", "tbsp", "tsp", "count"];
+export const UNITS = ["g", "oz", "kg", "lb", "ml", "l", "cup", "tbsp", "tsp", "count", "can", "unit"];
 
 export const CATEGORIES = ["Breakfast", "Lunch", "Dinner", "Snack", "Dessert"];
 

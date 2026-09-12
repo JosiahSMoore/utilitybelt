@@ -177,3 +177,25 @@ export async function saveLibraryIngredientAction(input: {
 
   return rowToLibraryIngredient(data);
 }
+
+export async function updateLibraryIngredientAction(
+  id: string,
+  input: { name: string; unit: string; caloriesPerUnit: number }
+): Promise<LibraryIngredient> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("ingredients")
+    .update({ name: input.name.trim(), unit: input.unit, calories_per_unit: input.caloriesPerUnit })
+    .eq("id", id)
+    .select()
+    .single<IngredientLibraryRow>();
+  if (error || !data) throw new Error(error?.message || "Failed to update ingredient.");
+
+  return rowToLibraryIngredient(data);
+}
+
+export async function deleteLibraryIngredientAction(id: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("ingredients").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
