@@ -5,7 +5,15 @@ export function generateId() {
 }
 
 export function emptyIngredient(): Ingredient {
-  return { id: generateId(), name: "", quantity: "", unit: "g", calories: "" };
+  return {
+    id: generateId(),
+    name: "",
+    quantity: "",
+    unit: "g",
+    calories: "",
+    libraryId: null,
+    servingMode: "whole",
+  };
 }
 
 export function emptyRecipe(): Recipe {
@@ -20,12 +28,19 @@ export function emptyRecipe(): Recipe {
 }
 
 export function recipeCalories(recipe: Recipe) {
-  const total = (recipe.ingredients || []).reduce(
-    (sum, i) => sum + (parseFloat(i.calories) || 0),
-    0
-  );
   const servings = parseFloat(String(recipe.servings)) || 1;
-  return { total: Math.round(total), perServing: Math.round(total / servings) };
+  let wholeTotal = 0;
+  let perServingTotal = 0;
+  (recipe.ingredients || []).forEach((i) => {
+    const cals = parseFloat(i.calories) || 0;
+    if (i.servingMode === "perServing") {
+      perServingTotal += cals;
+    } else {
+      wholeTotal += cals;
+    }
+  });
+  const perServing = wholeTotal / servings + perServingTotal;
+  return { total: Math.round(perServing * servings), perServing: Math.round(perServing) };
 }
 
 export type PlanDay = {

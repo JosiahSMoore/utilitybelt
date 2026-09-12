@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import type { MealSlot, Recipe, ShoppingItem } from "@/lib/types";
+import type { LibraryIngredient, MealSlot, Recipe, ShoppingItem } from "@/lib/types";
 
 type RecipeRow = {
   id: string;
@@ -132,4 +132,48 @@ export async function deleteShoppingItemsAction(ids: string[]): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase.from("shopping_list_items").delete().in("id", ids);
   if (error) throw new Error(error.message);
+}
+
+type IngredientLibraryRow = {
+  id: string;
+  name: string;
+  unit: string;
+  calories_per_unit: number | string;
+};
+
+function rowToLibraryIngredient(row: IngredientLibraryRow): LibraryIngredient {
+  return {
+    id: row.id,
+    name: row.name,
+    unit: row.unit,
+    caloriesPerUnit: Number(row.calories_per_unit) || 0,
+  };
+}
+
+export async function saveLibraryIngredientAction(input: {
+  name: string;
+  unit: string;
+  caloriesPerUnit: number;
+}): Promise<LibraryIngredient> {
+  const supabase = createAdminClient();
+  const name = input.name.trim();
+
+  const { data: existing, error: findError } = await supabase
+    .from("ingredients")
+    .select("*")
+    .ilike("name", name)
+    .maybeSingle<IngredientLibraryRow>();
+  if (findError) throw new Error(findError.message);
+
+  const query = existing
+    ? supabase
+        .from("ingredients")
+        .update({ unit: input.unit, calories_per_unit: input.caloriesPerUnit })
+        .eq("id", existing.id)
+    : supabase.from("ingredients").insert({ name, unit: input.unit, calories_per_unit: input.caloriesPerUnit });
+
+  const { data, error } = await query.select().single<IngredientLibraryRow>();
+  if (error || !data) throw new Error(error?.message || "Failed to save ingredient.");
+
+  return rowToLibraryIngredient(data);
 }

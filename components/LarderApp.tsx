@@ -22,13 +22,21 @@ import {
   clearMealAction,
   deleteRecipeAction,
   deleteShoppingItemsAction,
+  saveLibraryIngredientAction,
   saveRecipeAction,
   syncShoppingListAction,
   toggleShoppingItemAction,
 } from "@/app/actions";
 import { CATEGORIES, CATEGORY_STYLE, MEAL_SLOTS, SLOT_LABEL, UNITS } from "@/lib/constants";
 import { emptyIngredient, emptyRecipe, generateId, getNext7Days, recipeCalories } from "@/lib/helpers";
-import type { Ingredient, MealPlan, MealSlot, Recipe, ShoppingItem } from "@/lib/types";
+import type {
+  Ingredient,
+  LibraryIngredient,
+  MealPlan,
+  MealSlot,
+  Recipe,
+  ShoppingItem,
+} from "@/lib/types";
 
 type View =
   | "home"
@@ -53,14 +61,19 @@ export default function LarderApp({
   initialRecipes,
   initialMealPlan,
   initialShoppingList,
+  initialIngredientLibrary,
 }: {
   initialRecipes: Recipe[];
   initialMealPlan: MealPlan;
   initialShoppingList: ShoppingItem[];
+  initialIngredientLibrary: LibraryIngredient[];
 }) {
   const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
   const [mealPlan, setMealPlan] = useState<MealPlan>(initialMealPlan);
   const [shoppingList, setShoppingList] = useState<ShoppingItem[]>(initialShoppingList);
+  const [ingredientLibrary, setIngredientLibrary] = useState<LibraryIngredient[]>(
+    initialIngredientLibrary
+  );
 
   const [view, setView] = useState<View>("home");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
@@ -161,10 +174,15 @@ export default function LarderApp({
       MEAL_SLOTS.forEach((mt) => {
         const recipe = recipes.find((r) => r.id === slots[mt]);
         if (!recipe) return;
+        const servings = parseFloat(String(recipe.servings)) || 1;
         (recipe.ingredients || []).forEach((ing) => {
           if (!ing.name || !ing.name.trim()) return;
           const key = ing.name.trim().toLowerCase() + "|" + (ing.unit || "");
-          const qty = parseFloat(ing.quantity) || 0;
+          const enteredQty = parseFloat(ing.quantity) || 0;
+          // "Whole recipe" quantities are already the total to buy. "Per
+          // serving" quantities (toppings, garnishes) need scaling up by
+          // how many servings the recipe makes.
+          const qty = ing.servingMode === "perServing" ? enteredQty * servings : enteredQty;
           if (!map[key]) {
             map[key] = { name: ing.name.trim(), unit: ing.unit || "", quantity: 0, recipes: new Set() };
           }
@@ -223,6 +241,25 @@ export default function LarderApp({
     }
   }
 
+  async function saveLibraryIngredient(input: {
+    name: string;
+    unit: string;
+    caloriesPerUnit: number;
+  }): Promise<LibraryIngredient | null> {
+    try {
+      const saved = await saveLibraryIngredientAction(input);
+      setIngredientLibrary((prev) => {
+        const exists = prev.some((i) => i.id === saved.id);
+        const next = exists ? prev.map((i) => (i.id === saved.id ? saved : i)) : [...prev, saved];
+        return next.sort((a, b) => a.name.localeCompare(b.name));
+      });
+      return saved;
+    } catch {
+      showToast("Couldn't save to ingredient library — try again.");
+      return null;
+    }
+  }
+
   const filteredRecipes = recipes.filter((r) => {
     const matchesQuery = r.name.toLowerCase().includes(browseQuery.toLowerCase());
     const matchesCategory = browseCategory === "All" || r.category === browseCategory;
@@ -255,6 +292,8 @@ export default function LarderApp({
               setView(editingRecipe ? "recipeDetail" : "browse");
             }}
             onSave={saveRecipe}
+            ingredientLibrary={ingredientLibrary}
+            onSaveLibraryIngredient={saveLibraryIngredient}
           />
         )}
 
@@ -719,7 +758,12 @@ function RecipeDetail({
               <tbody>
                 {recipe.ingredients.map((ing) => (
                   <tr key={ing.id} className="border-b border-stone-200 last:border-0">
-                    <td className="py-2 text-stone-800">{ing.name}</td>
+                    <td className="py-2 text-stone-800">
+                      {ing.name}
+                      {ing.servingMode === "perServing" && (
+                        <span className="text-[10px] text-stone-400 ml-1.5">/serving</span>
+                      )}
+                    </td>
                     <td className="py-2 text-stone-500 text-right whitespace-nowrap">
                       {ing.quantity} {ing.unit}
                     </td>
@@ -747,10 +791,18 @@ function RecipeForm({
   initial,
   onCancel,
   onSave,
+  ingredientLibrary,
+  onSaveLibraryIngredient,
 }: {
   initial: Recipe;
   onCancel: () => void;
   onSave: (r: Recipe) => void;
+  ingredientLibrary: LibraryIngredient[];
+  onSaveLibraryIngredient: (input: {
+    name: string;
+    unit: string;
+    caloriesPerUnit: number;
+  }) => Promise<LibraryIngredient | null>;
 }) {
   const [recipe, setRecipe] = useState<Recipe>(initial);
 
@@ -758,7 +810,7 @@ function RecipeForm({
     setRecipe((r) => ({ ...r, [field]: value }));
   }
 
-  function updateIngredient(id: string, field: keyof Ingredient, value: string) {
+  function updateIngredient<K extends keyof Ingredient>(id: string, field: K, value: Ingredient[K]) {
     setRecipe((r) => ({
       ...r,
       ingredients: r.ingredients.map((ing) => (ing.id === id ? { ...ing, [field]: value } : ing)),
@@ -839,52 +891,25 @@ function RecipeForm({
 
         <div className="space-y-2 mb-3">
           <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-            <span className="col-span-5">Ingredient</span>
+            <span className="col-span-4">Ingredient</span>
             <span className="col-span-2">Quantity</span>
             <span className="col-span-2">Unit</span>
             <span className="col-span-2">Calories</span>
+            <span className="col-span-1 text-center" title="Whole recipe vs. per serving">
+              Per svg
+            </span>
+            <span className="col-span-1"></span>
           </div>
           {recipe.ingredients.map((ing) => (
-            <div key={ing.id} className="grid grid-cols-12 gap-2 items-center">
-              <input
-                value={ing.name}
-                onChange={(e) => updateIngredient(ing.id, "name", e.target.value)}
-                placeholder="Ingredient"
-                className="col-span-5 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-              />
-              <input
-                type="number"
-                value={ing.quantity}
-                onChange={(e) => updateIngredient(ing.id, "quantity", e.target.value)}
-                placeholder="0"
-                className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-              />
-              <select
-                value={ing.unit}
-                onChange={(e) => updateIngredient(ing.id, "unit", e.target.value)}
-                className="col-span-2 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-              >
-                {UNITS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={ing.calories}
-                onChange={(e) => updateIngredient(ing.id, "calories", e.target.value)}
-                placeholder="0"
-                className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-              />
-              <button
-                onClick={() => removeIngredientRow(ing.id)}
-                disabled={recipe.ingredients.length === 1}
-                className="col-span-1 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
-              >
-                <Trash2 size={15} />
-              </button>
-            </div>
+            <IngredientRow
+              key={ing.id}
+              ingredient={ing}
+              library={ingredientLibrary}
+              onChange={(field, value) => updateIngredient(ing.id, field, value)}
+              onRemove={() => removeIngredientRow(ing.id)}
+              disableRemove={recipe.ingredients.length === 1}
+              onSaveNewLibraryIngredient={onSaveLibraryIngredient}
+            />
           ))}
         </div>
 
@@ -914,6 +939,241 @@ function RecipeForm({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function IngredientRow({
+  ingredient,
+  library,
+  onChange,
+  onRemove,
+  disableRemove,
+  onSaveNewLibraryIngredient,
+}: {
+  ingredient: Ingredient;
+  library: LibraryIngredient[];
+  onChange: <K extends keyof Ingredient>(field: K, value: Ingredient[K]) => void;
+  onRemove: () => void;
+  disableRemove: boolean;
+  onSaveNewLibraryIngredient: (input: {
+    name: string;
+    unit: string;
+    caloriesPerUnit: number;
+  }) => Promise<LibraryIngredient | null>;
+}) {
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [dismissedName, setDismissedName] = useState<string | null>(null);
+  const [promptUnit, setPromptUnit] = useState(ingredient.unit);
+  const [promptCalories, setPromptCalories] = useState("");
+  const [saving, setSaving] = useState(false);
+  const quantityRef = useRef<HTMLInputElement>(null);
+
+  const trimmedName = ingredient.name.trim();
+  const exactMatch = library.find((l) => l.name.toLowerCase() === trimmedName.toLowerCase());
+  const suggestions = trimmedName
+    ? library.filter((l) => l.name.toLowerCase().includes(trimmedName.toLowerCase())).slice(0, 6)
+    : [];
+
+  function selectSuggestion(lib: LibraryIngredient) {
+    const qty = parseFloat(ingredient.quantity) || 1;
+    onChange("name", lib.name);
+    onChange("unit", lib.unit);
+    onChange("calories", String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
+    onChange("libraryId", lib.id);
+    setShowSuggestions(false);
+    setShowSavePrompt(false);
+    quantityRef.current?.focus();
+  }
+
+  function handleNameBlur() {
+    // Delay so a suggestion/save-prompt click has a chance to register
+    // before we evaluate and possibly hide everything on blur.
+    setTimeout(() => {
+      setShowSuggestions(false);
+      const name = ingredient.name.trim();
+      if (!name) return;
+      const match = library.find((l) => l.name.toLowerCase() === name.toLowerCase());
+      if (match) {
+        if (ingredient.libraryId !== match.id) onChange("libraryId", match.id);
+        setShowSavePrompt(false);
+        return;
+      }
+      if (ingredient.libraryId || dismissedName === name) return;
+      const qty = parseFloat(ingredient.quantity) || 0;
+      const cals = parseFloat(ingredient.calories) || 0;
+      setPromptUnit(ingredient.unit);
+      setPromptCalories(qty > 0 && cals > 0 ? String(Math.round((cals / qty) * 100) / 100) : "");
+      setShowSavePrompt(true);
+    }, 150);
+  }
+
+  async function confirmSaveToLibrary() {
+    const caloriesPerUnit = parseFloat(promptCalories);
+    if (!trimmedName || Number.isNaN(caloriesPerUnit)) return;
+    setSaving(true);
+    const saved = await onSaveNewLibraryIngredient({
+      name: trimmedName,
+      unit: promptUnit,
+      caloriesPerUnit,
+    });
+    setSaving(false);
+    if (saved) {
+      onChange("libraryId", saved.id);
+      setShowSavePrompt(false);
+    }
+  }
+
+  function dismissSavePrompt() {
+    setDismissedName(trimmedName);
+    setShowSavePrompt(false);
+  }
+
+  return (
+    <div className="grid grid-cols-12 gap-2 items-start">
+      <div className="col-span-4 relative">
+        <div className="relative">
+          <input
+            value={ingredient.name}
+            onChange={(e) => {
+              onChange("name", e.target.value);
+              if (ingredient.libraryId) onChange("libraryId", null);
+              setShowSuggestions(true);
+              setShowSavePrompt(false);
+            }}
+            onFocus={() => setShowSuggestions(true)}
+            onBlur={handleNameBlur}
+            placeholder="Ingredient"
+            className="w-full px-2.5 py-2 pr-7 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          />
+          {exactMatch && (
+            <BookOpen
+              size={13}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-600"
+            />
+          )}
+        </div>
+
+        {showSuggestions && suggestions.length > 0 && (
+          <div className="absolute z-10 mt-1 w-full bg-white border border-stone-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+            {suggestions.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => selectSuggestion(s)}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 flex items-center justify-between gap-2"
+              >
+                <span className="text-stone-800 truncate">{s.name}</span>
+                <span className="text-stone-400 text-xs whitespace-nowrap">
+                  {s.caloriesPerUnit} cal/{s.unit}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {showSavePrompt && (
+          <div className="mt-1.5 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs space-y-2">
+            <p className="text-stone-700">Save “{trimmedName}” to your ingredient library?</p>
+            <div className="flex gap-1.5">
+              <select
+                value={promptUnit}
+                onChange={(e) => setPromptUnit(e.target.value)}
+                className="px-1.5 py-1 rounded border border-stone-200 bg-white text-xs"
+              >
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={promptCalories}
+                onChange={(e) => setPromptCalories(e.target.value)}
+                placeholder="cal per unit"
+                className="flex-1 min-w-0 px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+              />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={dismissSavePrompt} className="text-stone-500 hover:underline">
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={confirmSaveToLibrary}
+                disabled={saving || !promptCalories}
+                className="text-emerald-800 font-medium hover:underline disabled:opacity-40"
+              >
+                Save to library
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <input
+        ref={quantityRef}
+        type="number"
+        value={ingredient.quantity}
+        onChange={(e) => onChange("quantity", e.target.value)}
+        placeholder="0"
+        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      />
+      <select
+        value={ingredient.unit}
+        onChange={(e) => onChange("unit", e.target.value)}
+        className="col-span-2 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      >
+        {UNITS.map((u) => (
+          <option key={u} value={u}>
+            {u}
+          </option>
+        ))}
+      </select>
+      <input
+        type="number"
+        value={ingredient.calories}
+        onChange={(e) => onChange("calories", e.target.value)}
+        placeholder="0"
+        className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      />
+      <button
+        type="button"
+        role="switch"
+        aria-checked={ingredient.servingMode === "perServing"}
+        onClick={() =>
+          onChange("servingMode", ingredient.servingMode === "perServing" ? "whole" : "perServing")
+        }
+        title={
+          ingredient.servingMode === "perServing"
+            ? "Per serving — click for whole recipe"
+            : "Whole recipe — click for per serving"
+        }
+        className="col-span-1 h-9 flex items-center justify-center"
+      >
+        <span
+          className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
+            ingredient.servingMode === "perServing" ? "bg-emerald-700" : "bg-stone-300"
+          }`}
+        >
+          <span
+            className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+              ingredient.servingMode === "perServing" ? "translate-x-3.5" : "translate-x-0.5"
+            }`}
+          />
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={disableRemove}
+        className="col-span-1 h-9 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
+      >
+        <Trash2 size={15} />
+      </button>
     </div>
   );
 }

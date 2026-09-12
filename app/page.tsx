@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import LarderApp from "@/components/LarderApp";
-import type { MealPlan, Recipe, ShoppingItem } from "@/lib/types";
+import type { LibraryIngredient, MealPlan, Recipe, ShoppingItem } from "@/lib/types";
 
 // Without this, Next.js has nothing telling it this page depends on request
 // time or uncached data, so it prerenders it once at build time and serves
@@ -26,10 +26,11 @@ export default async function Page() {
   const supabase = createAdminClient();
   const { start, end } = paddedRange();
 
-  const [recipesRes, mealPlanRes, shoppingRes] = await Promise.all([
+  const [recipesRes, mealPlanRes, shoppingRes, ingredientsRes] = await Promise.all([
     supabase.from("recipes").select("*").order("name"),
     supabase.from("meal_plan").select("*").gte("date", start).lte("date", end),
     supabase.from("shopping_list_items").select("*").order("name"),
+    supabase.from("ingredients").select("*").order("name"),
   ]);
 
   const initialRecipes: Recipe[] = (recipesRes.data || []).map((r) => ({
@@ -56,11 +57,19 @@ export default async function Page() {
     checked: row.checked,
   }));
 
+  const initialIngredientLibrary: LibraryIngredient[] = (ingredientsRes.data || []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    unit: row.unit,
+    caloriesPerUnit: Number(row.calories_per_unit) || 0,
+  }));
+
   return (
     <LarderApp
       initialRecipes={initialRecipes}
       initialMealPlan={initialMealPlan}
       initialShoppingList={initialShoppingList}
+      initialIngredientLibrary={initialIngredientLibrary}
     />
   );
 }
