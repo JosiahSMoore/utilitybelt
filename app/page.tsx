@@ -2,6 +2,11 @@ import { createAdminClient } from "@/lib/supabase/server";
 import LarderApp from "@/components/LarderApp";
 import type { MealPlan, Recipe, ShoppingItem } from "@/lib/types";
 
+// Without this, Next.js has nothing telling it this page depends on request
+// time or uncached data, so it prerenders it once at build time and serves
+// that frozen snapshot to every visitor forever after.
+export const dynamic = "force-dynamic";
+
 // Meal-plan "today" is computed on the client from the browser's clock, but
 // we fetch server-side before we know the client's timezone. Pad the range
 // by a day on each side so a skew near midnight never hides a planned meal.
