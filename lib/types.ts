@@ -41,7 +41,23 @@ export type Recipe = {
   instructions: string;
 };
 
-export type DayPlan = Partial<Record<MealSlot, string | null>>;
+// A one-off meal typed directly into a slot — never saved to the recipes
+// table, only ever lives inside that slot's meal_plan row.
+export type CustomMeal = {
+  name: string;
+  calories: number;
+  protein: number;
+  fiber: number;
+};
+
+// A slot holds either a reference to a saved recipe OR an inline custom
+// meal, never both. `null` (or absent) means nothing assigned.
+export type MealSlotValue = {
+  recipeId: string | null;
+  custom: CustomMeal | null;
+};
+
+export type DayPlan = Partial<Record<MealSlot, MealSlotValue | null>>;
 
 export type MealPlan = Record<string, DayPlan>;
 
@@ -52,4 +68,13 @@ export type ShoppingItem = {
   unit: string;
   recipes: string[];
   checked: boolean;
+};
+
+// Something eaten on a given day outside any planned meal slot. Calories
+// only, by design — no protein/fiber tracking for these.
+export type DailyExtra = {
+  id: string;
+  date: string;
+  name: string;
+  calories: number;
 };

@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/server";
 import LarderApp from "@/components/LarderApp";
-import type { LibraryIngredient, MealPlan, Recipe, ShoppingItem } from "@/lib/types";
+import type { DailyExtra, LibraryIngredient, MealPlan, Recipe, ShoppingItem } from "@/lib/types";
 
 // Without this, Next.js has nothing telling it this page depends on request
 // time or uncached data, so it prerenders it once at build time and serves
@@ -26,11 +26,12 @@ export default async function Page() {
   const supabase = createAdminClient();
   const { start, end } = paddedRange();
 
-  const [recipesRes, mealPlanRes, shoppingRes, ingredientsRes] = await Promise.all([
+  const [recipesRes, mealPlanRes, shoppingRes, ingredientsRes, extrasRes] = await Promise.all([
     supabase.from("recipes").select("*").order("name"),
     supabase.from("meal_plan").select("*").gte("date", start).lte("date", end),
     supabase.from("shopping_list_items").select("*").order("name"),
     supabase.from("ingredients").select("*").order("name"),
+    supabase.from("daily_extras").select("*").gte("date", start).lte("date", end),
   ]);
 
   const initialRecipes: Recipe[] = (recipesRes.data || []).map((r) => ({
@@ -45,7 +46,10 @@ export default async function Page() {
   const initialMealPlan: MealPlan = {};
   (mealPlanRes.data || []).forEach((row) => {
     if (!initialMealPlan[row.date]) initialMealPlan[row.date] = {};
-    initialMealPlan[row.date][row.slot as keyof MealPlan[string]] = row.recipe_id;
+    initialMealPlan[row.date][row.slot as keyof MealPlan[string]] = {
+      recipeId: row.recipe_id,
+      custom: row.custom_meal ?? null,
+    };
   });
 
   const initialShoppingList: ShoppingItem[] = (shoppingRes.data || []).map((row) => ({
@@ -66,12 +70,20 @@ export default async function Page() {
     fiberPerUnit: Number(row.fiber_per_unit) || 0,
   }));
 
+  const initialDailyExtras: DailyExtra[] = (extrasRes.data || []).map((row) => ({
+    id: row.id,
+    date: row.date,
+    name: row.name,
+    calories: Number(row.calories) || 0,
+  }));
+
   return (
     <LarderApp
       initialRecipes={initialRecipes}
       initialMealPlan={initialMealPlan}
       initialShoppingList={initialShoppingList}
       initialIngredientLibrary={initialIngredientLibrary}
+      initialDailyExtras={initialDailyExtras}
     />
   );
 }

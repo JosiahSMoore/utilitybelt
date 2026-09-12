@@ -20,8 +20,11 @@ import {
   Wheat,
 } from "lucide-react";
 import {
+  addDailyExtraAction,
+  assignCustomMealAction,
   assignMealAction,
   clearMealAction,
+  deleteDailyExtraAction,
   deleteLibraryIngredientAction,
   deleteRecipeAction,
   deleteShoppingItemsAction,
@@ -42,10 +45,13 @@ import {
   recipeProtein,
 } from "@/lib/helpers";
 import type {
+  CustomMeal,
+  DailyExtra,
   Ingredient,
   LibraryIngredient,
   MealPlan,
   MealSlot,
+  MealSlotValue,
   Recipe,
   ShoppingItem,
 } from "@/lib/types";
@@ -68,6 +74,13 @@ type LibraryIngredientInput = {
   proteinPerUnit: number;
   fiberPerUnit: number;
 };
+
+function slotDisplayName(slot: MealSlotValue | null | undefined, recipes: Recipe[]): string | null {
+  if (!slot) return null;
+  if (slot.custom) return slot.custom.name;
+  if (slot.recipeId) return recipes.find((r) => r.id === slot.recipeId)?.name ?? null;
+  return null;
+}
 
 function NutritionChips({ nutrition, size = "sm" }: { nutrition: DayNutrition; size?: "sm" | "xs" }) {
   const textSize = size === "xs" ? "text-[10px]" : "text-sm";
@@ -103,11 +116,13 @@ export default function LarderApp({
   initialMealPlan,
   initialShoppingList,
   initialIngredientLibrary,
+  initialDailyExtras,
 }: {
   initialRecipes: Recipe[];
   initialMealPlan: MealPlan;
   initialShoppingList: ShoppingItem[];
   initialIngredientLibrary: LibraryIngredient[];
+  initialDailyExtras: DailyExtra[];
 }) {
   const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
   const [mealPlan, setMealPlan] = useState<MealPlan>(initialMealPlan);
@@ -115,6 +130,7 @@ export default function LarderApp({
   const [ingredientLibrary, setIngredientLibrary] = useState<LibraryIngredient[]>(
     initialIngredientLibrary
   );
+  const [dailyExtras, setDailyExtras] = useState<DailyExtra[]>(initialDailyExtras);
 
   const [view, setView] = useState<View>("home");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
@@ -122,6 +138,7 @@ export default function LarderApp({
   const [pickerSlot, setPickerSlot] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [activeDayIdx, setActiveDayIdx] = useState(0);
+  const [extrasDate, setExtrasDate] = useState<string | null>(null);
 
   const [browseQuery, setBrowseQuery] = useState("");
   const [browseCategory, setBrowseCategory] = useState("All");
@@ -154,7 +171,7 @@ export default function LarderApp({
       Object.entries(mealPlan).forEach(([date, slots]) => {
         const cleaned = { ...slots };
         MEAL_SLOTS.forEach((mt) => {
-          if (cleaned[mt] === id) cleaned[mt] = null;
+          if (cleaned[mt]?.recipeId === id) cleaned[mt] = null;
         });
         nextPlan[date] = cleaned;
       });
@@ -171,11 +188,30 @@ export default function LarderApp({
 
   async function assignMeal(date: string, slot: MealSlot, recipeId: string) {
     const prev = mealPlan;
-    const next = { ...mealPlan, [date]: { ...(mealPlan[date] || {}), [slot]: recipeId } };
+    const next = {
+      ...mealPlan,
+      [date]: { ...(mealPlan[date] || {}), [slot]: { recipeId, custom: null } },
+    };
     setMealPlan(next);
     setPickerSlot(null);
     try {
       await assignMealAction(date, slot, recipeId);
+    } catch {
+      setMealPlan(prev);
+      showToast("Couldn't save that meal — try again.");
+    }
+  }
+
+  async function assignCustomMeal(date: string, slot: MealSlot, custom: CustomMeal) {
+    const prev = mealPlan;
+    const next = {
+      ...mealPlan,
+      [date]: { ...(mealPlan[date] || {}), [slot]: { recipeId: null, custom } },
+    };
+    setMealPlan(next);
+    setPickerSlot(null);
+    try {
+      await assignCustomMealAction(date, slot, custom);
     } catch {
       setMealPlan(prev);
       showToast("Couldn't save that meal — try again.");
@@ -197,9 +233,17 @@ export default function LarderApp({
 
   function dayNutrition(date: string) {
     const slots = mealPlan[date] || {};
-    return MEAL_SLOTS.reduce(
+    const fromMeals = MEAL_SLOTS.reduce(
       (acc, mt) => {
-        const r = recipes.find((rc) => rc.id === slots[mt]);
+        const slot = slots[mt];
+        if (slot?.custom) {
+          return {
+            calories: acc.calories + slot.custom.calories,
+            protein: acc.protein + slot.custom.protein,
+            fiber: acc.fiber + slot.custom.fiber,
+          };
+        }
+        const r = recipes.find((rc) => rc.id === slot?.recipeId);
         if (!r) return acc;
         return {
           calories: acc.calories + recipeCalories(r).perServing,
@@ -209,6 +253,10 @@ export default function LarderApp({
       },
       { calories: 0, protein: 0, fiber: 0 }
     );
+    const extraCalories = dailyExtras
+      .filter((e) => e.date === date)
+      .reduce((sum, e) => sum + e.calories, 0);
+    return { ...fromMeals, calories: fromMeals.calories + extraCalories };
   }
 
   async function buildShoppingList() {
@@ -221,7 +269,7 @@ export default function LarderApp({
       const slots = mealPlan[day.date];
       if (!slots) return;
       MEAL_SLOTS.forEach((mt) => {
-        const recipe = recipes.find((r) => r.id === slots[mt]);
+        const recipe = recipes.find((r) => r.id === slots[mt]?.recipeId);
         if (!recipe) return;
         const servings = parseFloat(String(recipe.servings)) || 1;
         (recipe.ingredients || []).forEach((ing) => {
@@ -336,6 +384,26 @@ export default function LarderApp({
     }
   }
 
+  async function addDailyExtra(date: string, name: string, calories: number) {
+    try {
+      const saved = await addDailyExtraAction(date, name, calories);
+      setDailyExtras((prev) => [...prev, saved]);
+    } catch {
+      showToast("Couldn't add that — try again.");
+    }
+  }
+
+  async function deleteDailyExtra(id: string) {
+    const prev = dailyExtras;
+    setDailyExtras((cur) => cur.filter((e) => e.id !== id));
+    try {
+      await deleteDailyExtraAction(id);
+    } catch {
+      setDailyExtras(prev);
+      showToast("Couldn't remove that — try again.");
+    }
+  }
+
   const filteredRecipes = recipes.filter((r) => {
     const matchesQuery = r.name.toLowerCase().includes(browseQuery.toLowerCase());
     const matchesCategory = browseCategory === "All" || r.category === browseCategory;
@@ -428,10 +496,12 @@ export default function LarderApp({
             days={days}
             mealPlan={mealPlan}
             recipes={recipes}
+            dailyExtras={dailyExtras}
             dayNutrition={dayNutrition}
             activeDayIdx={activeDayIdx}
             setActiveDayIdx={setActiveDayIdx}
             openPicker={(date, slot) => setPickerSlot({ date, slot })}
+            openExtras={(date) => setExtrasDate(date)}
             onBuildList={buildShoppingList}
           />
         )}
@@ -450,8 +520,9 @@ export default function LarderApp({
         <RecipePickerModal
           recipes={recipes}
           slot={pickerSlot}
-          current={(mealPlan[pickerSlot.date] || {})[pickerSlot.slot]}
+          current={(mealPlan[pickerSlot.date] || {})[pickerSlot.slot] || null}
           onPick={(id) => assignMeal(pickerSlot.date, pickerSlot.slot, id)}
+          onSaveCustom={(custom) => assignCustomMeal(pickerSlot.date, pickerSlot.slot, custom)}
           onClear={() => clearMeal(pickerSlot.date, pickerSlot.slot)}
           onClose={() => setPickerSlot(null)}
           onAddNew={() => {
@@ -459,6 +530,17 @@ export default function LarderApp({
             setEditingRecipe(null);
             setView("addRecipe");
           }}
+        />
+      )}
+
+      {extrasDate && (
+        <ExtrasModal
+          date={extrasDate}
+          extras={dailyExtras.filter((e) => e.date === extrasDate)}
+          ingredientLibrary={ingredientLibrary}
+          onAdd={(name, calories) => addDailyExtra(extrasDate, name, calories)}
+          onDelete={deleteDailyExtra}
+          onClose={() => setExtrasDate(null)}
         />
       )}
 
@@ -569,11 +651,6 @@ function HomeView({
 }) {
   const today = days[0];
 
-  function recipeName(id: string | null | undefined) {
-    const r = recipes.find((rc) => rc.id === id);
-    return r ? r.name : null;
-  }
-
   return (
     <div>
       <div className="mb-6 md:hidden">
@@ -590,7 +667,7 @@ function HomeView({
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {MEAL_SLOTS.map((slot) => {
-            const name = recipeName(todaysPlan[slot]);
+            const name = slotDisplayName(todaysPlan[slot], recipes);
             return (
               <div key={slot} className="text-sm">
                 <p className="text-stone-400 uppercase tracking-wide text-[11px] mb-1 flex items-center gap-1">
@@ -1338,27 +1415,26 @@ function MealPlanView({
   days,
   mealPlan,
   recipes,
+  dailyExtras,
   dayNutrition,
   activeDayIdx,
   setActiveDayIdx,
   openPicker,
+  openExtras,
   onBuildList,
 }: {
   days: ReturnType<typeof getNext7Days>;
   mealPlan: MealPlan;
   recipes: Recipe[];
+  dailyExtras: DailyExtra[];
   dayNutrition: (date: string) => DayNutrition;
   activeDayIdx: number;
   setActiveDayIdx: (i: number) => void;
   openPicker: (date: string, slot: MealSlot) => void;
+  openExtras: (date: string) => void;
   onBuildList: () => void;
 }) {
   const activeDay = days[activeDayIdx];
-
-  function recipeName(id: string | null | undefined) {
-    const r = recipes.find((rc) => rc.id === id);
-    return r ? r.name : null;
-  }
 
   return (
     <div>
@@ -1405,8 +1481,7 @@ function MealPlanView({
           <div key={slot} className="grid grid-cols-8 border-b border-stone-100 last:border-0">
             <div className="p-3 text-xs font-medium text-stone-500 flex items-center">{SLOT_LABEL[slot]}</div>
             {days.map((d) => {
-              const rid = (mealPlan[d.date] || {})[slot];
-              const name = recipeName(rid);
+              const name = slotDisplayName((mealPlan[d.date] || {})[slot], recipes);
               return (
                 <button
                   key={d.date}
@@ -1423,6 +1498,22 @@ function MealPlanView({
             })}
           </div>
         ))}
+        <div className="grid grid-cols-8">
+          <div className="p-3 text-xs font-medium text-stone-500 flex items-center">Extras</div>
+          {days.map((d) => {
+            const extras = dailyExtras.filter((e) => e.date === d.date);
+            const total = extras.reduce((sum, e) => sum + e.calories, 0);
+            return (
+              <button
+                key={d.date}
+                onClick={() => openExtras(d.date)}
+                className="m-1.5 p-2 rounded-lg text-xs text-left border border-dashed border-stone-300 text-stone-400 hover:border-stone-400"
+              >
+                {extras.length > 0 ? `${extras.length} · ${total} cal` : "+ Add"}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Mobile day view */}
@@ -1451,8 +1542,7 @@ function MealPlanView({
 
         <div className="space-y-2">
           {MEAL_SLOTS.map((slot) => {
-            const rid = (mealPlan[activeDay.date] || {})[slot];
-            const name = recipeName(rid);
+            const name = slotDisplayName((mealPlan[activeDay.date] || {})[slot], recipes);
             return (
               <button
                 key={slot}
@@ -1469,6 +1559,27 @@ function MealPlanView({
               </button>
             );
           })}
+
+          {(() => {
+            const extras = dailyExtras.filter((e) => e.date === activeDay.date);
+            const total = extras.reduce((sum, e) => sum + e.calories, 0);
+            return (
+              <button
+                onClick={() => openExtras(activeDay.date)}
+                className="w-full flex items-center justify-between bg-amber-50 border border-dashed border-stone-300 rounded-xl px-4 py-3 text-left"
+              >
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-stone-400">Extras</p>
+                  <p className={`text-sm font-medium mt-0.5 ${extras.length ? "text-stone-900" : "text-stone-400"}`}>
+                    {extras.length > 0
+                      ? `${extras.length} item${extras.length === 1 ? "" : "s"} · ${total} cal`
+                      : "Add something you ate"}
+                  </p>
+                </div>
+                <Plus size={16} className="text-stone-400" />
+              </button>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -1480,20 +1591,46 @@ function RecipePickerModal({
   slot,
   current,
   onPick,
+  onSaveCustom,
   onClear,
   onClose,
   onAddNew,
 }: {
   recipes: Recipe[];
   slot: { date: string; slot: MealSlot };
-  current: string | null | undefined;
+  current: MealSlotValue | null;
   onPick: (id: string) => void;
+  onSaveCustom: (custom: CustomMeal) => void;
   onClear: () => void;
   onClose: () => void;
   onAddNew: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [mode, setMode] = useState<"browse" | "custom">(current?.custom ? "custom" : "browse");
+  const [customName, setCustomName] = useState(current?.custom?.name ?? "");
+  const [customCalories, setCustomCalories] = useState(
+    current?.custom ? String(current.custom.calories) : ""
+  );
+  const [customProtein, setCustomProtein] = useState(
+    current?.custom ? String(current.custom.protein) : ""
+  );
+  const [customFiber, setCustomFiber] = useState(
+    current?.custom ? String(current.custom.fiber) : ""
+  );
+
   const filtered = recipes.filter((r) => r.name.toLowerCase().includes(query.toLowerCase()));
+
+  function submitCustom() {
+    const name = customName.trim();
+    const calories = parseFloat(customCalories);
+    if (!name || Number.isNaN(calories)) return;
+    onSaveCustom({
+      name,
+      calories,
+      protein: parseFloat(customProtein) || 0,
+      fiber: parseFloat(customFiber) || 0,
+    });
+  }
 
   return (
     <div className="fixed inset-0 bg-stone-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
@@ -1504,55 +1641,317 @@ function RecipePickerModal({
             <X size={18} />
           </button>
         </div>
-        <div className="p-4 pb-2">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search recipes…"
-              className="w-full pl-8 pr-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-            />
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5">
-          {filtered.length === 0 && <p className="text-sm text-stone-500 text-center py-6">No recipes match.</p>}
-          {filtered.map((r) => {
-            const { perServing } = recipeCalories(r);
-            return (
+
+        {mode === "browse" ? (
+          <>
+            <div className="p-4 pb-2">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                <input
+                  autoFocus
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search recipes…"
+                  className="w-full pl-8 pr-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5">
+              {filtered.length === 0 && <p className="text-sm text-stone-500 text-center py-6">No recipes match.</p>}
+              {filtered.map((r) => {
+                const { perServing } = recipeCalories(r);
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => onPick(r.id)}
+                    className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-left border ${
+                      current?.recipeId === r.id
+                        ? "border-emerald-700 bg-emerald-50"
+                        : "border-stone-200 hover:bg-stone-50"
+                    }`}
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-stone-800">{r.name}</p>
+                      <p className="text-xs text-stone-400">
+                        {r.category} · {perServing} cal
+                      </p>
+                    </div>
+                    {current?.recipeId === r.id && <Check size={16} className="text-emerald-700" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="p-4 border-t border-stone-200 space-y-2">
+              {current && (
+                <button
+                  onClick={onClear}
+                  className="w-full px-4 py-2 rounded-full text-sm font-medium text-orange-700 border border-orange-200 hover:bg-orange-50"
+                >
+                  Clear meal
+                </button>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={onAddNew}
+                  className="flex-1 px-4 py-2 rounded-full text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-100"
+                >
+                  + New recipe
+                </button>
+                <button
+                  onClick={() => setMode("custom")}
+                  className="flex-1 px-4 py-2 rounded-full text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-100"
+                >
+                  Build custom meal
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div>
+              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Meal name</label>
+              <input
+                autoFocus
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="e.g. Restaurant burger"
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Calories</label>
+                <input
+                  type="number"
+                  value={customCalories}
+                  onChange={(e) => setCustomCalories(e.target.value)}
+                  placeholder="0"
+                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Protein (g)</label>
+                <input
+                  type="number"
+                  value={customProtein}
+                  onChange={(e) => setCustomProtein(e.target.value)}
+                  placeholder="0"
+                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Fiber (g)</label>
+                <input
+                  type="number"
+                  value={customFiber}
+                  onChange={(e) => setCustomFiber(e.target.value)}
+                  placeholder="0"
+                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-stone-400">
+              This is a one-off meal — it won't be saved to your recipe book or ingredient library.
+            </p>
+            <div className="flex justify-between items-center pt-2">
+              <button onClick={() => setMode("browse")} className="text-sm font-medium text-stone-500 hover:underline">
+                ← Browse recipes instead
+              </button>
               <button
-                key={r.id}
-                onClick={() => onPick(r.id)}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-left border ${
-                  current === r.id ? "border-emerald-700 bg-emerald-50" : "border-stone-200 hover:bg-stone-50"
-                }`}
+                onClick={submitCustom}
+                disabled={!customName.trim() || !customCalories}
+                className="px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
+              >
+                Save custom meal
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ExtrasModal({
+  date,
+  extras,
+  ingredientLibrary,
+  onAdd,
+  onDelete,
+  onClose,
+}: {
+  date: string;
+  extras: DailyExtra[];
+  ingredientLibrary: LibraryIngredient[];
+  onAdd: (name: string, calories: number) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [mode, setMode] = useState<"manual" | "ingredient">("manual");
+  const [name, setName] = useState("");
+  const [calories, setCalories] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("g");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const trimmedName = name.trim();
+  const suggestions = trimmedName
+    ? ingredientLibrary.filter((i) => i.name.toLowerCase().includes(trimmedName.toLowerCase())).slice(0, 6)
+    : [];
+  const total = extras.reduce((sum, e) => sum + e.calories, 0);
+
+  function selectSuggestion(lib: LibraryIngredient) {
+    const qty = parseFloat(quantity) || 1;
+    setName(lib.name);
+    setUnit(lib.unit);
+    setCalories(String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
+    setShowSuggestions(false);
+  }
+
+  function handleAdd() {
+    const cals = parseFloat(calories);
+    if (!trimmedName || Number.isNaN(cals)) return;
+    onAdd(trimmedName, cals);
+    setName("");
+    setCalories("");
+    setQuantity("");
+  }
+
+  const dateLabel = new Date(date + "T00:00:00").toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-amber-50 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[85vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-200">
+          <div>
+            <h2 className="font-display text-lg text-stone-900">Extras</h2>
+            <p className="text-xs text-stone-400">{dateLabel}</p>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700">
+            <X size={18} />
+          </button>
+        </div>
+
+        {extras.length > 0 && (
+          <div className="px-4 pt-3 space-y-1.5 max-h-40 overflow-y-auto">
+            {extras.map((e) => (
+              <div
+                key={e.id}
+                className="flex items-center justify-between bg-white border border-stone-200 rounded-lg px-3 py-2"
               >
                 <div>
-                  <p className="text-sm font-medium text-stone-800">{r.name}</p>
-                  <p className="text-xs text-stone-400">
-                    {r.category} · {perServing} cal
+                  <p className="text-sm text-stone-800">{e.name}</p>
+                  <p className="text-xs text-orange-800 font-medium flex items-center gap-1">
+                    <Flame size={11} /> {e.calories} cal
                   </p>
                 </div>
-                {current === r.id && <Check size={16} className="text-emerald-700" />}
-              </button>
-            );
-          })}
-        </div>
-        <div className="p-4 border-t border-stone-200 flex gap-2">
-          {current && (
+                <button onClick={() => onDelete(e.id)} className="text-stone-400 hover:text-orange-700">
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <p className="text-xs text-stone-400 text-right pt-1">Total: {total} cal</p>
+          </div>
+        )}
+
+        <div className="p-4 space-y-3">
+          <div className="flex gap-1.5">
             <button
-              onClick={onClear}
-              className="flex-1 px-4 py-2 rounded-full text-sm font-medium text-orange-700 border border-orange-200 hover:bg-orange-50"
+              type="button"
+              onClick={() => setMode("manual")}
+              className={`flex-1 px-3 py-1.5 rounded-full text-xs font-medium border ${
+                mode === "manual" ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+              }`}
             >
-              Clear meal
+              Manual
             </button>
+            <button
+              type="button"
+              onClick={() => setMode("ingredient")}
+              className={`flex-1 px-3 py-1.5 rounded-full text-xs font-medium border ${
+                mode === "ingredient" ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+              }`}
+            >
+              From ingredient
+            </button>
+          </div>
+
+          {mode === "ingredient" ? (
+            <div className="relative">
+              <input
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                placeholder="Search ingredients…"
+                className="w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-10 mt-1 w-full bg-white border border-stone-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectSuggestion(s)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 flex items-center justify-between gap-2"
+                    >
+                      <span className="text-stone-800 truncate">{s.name}</span>
+                      <span className="text-stone-400 text-xs whitespace-nowrap">
+                        {s.caloriesPerUnit} cal/{s.unit}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <input
+                  type="number"
+                  value={quantity}
+                  onChange={(e) => setQuantity(e.target.value)}
+                  placeholder={`Qty (${unit})`}
+                  className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                />
+                <input
+                  type="number"
+                  value={calories}
+                  onChange={(e) => setCalories(e.target.value)}
+                  placeholder="Calories"
+                  className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="What did you eat?"
+                className="px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+              <input
+                type="number"
+                value={calories}
+                onChange={(e) => setCalories(e.target.value)}
+                placeholder="Calories"
+                className="px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+            </div>
           )}
+
           <button
-            onClick={onAddNew}
-            className="flex-1 px-4 py-2 rounded-full text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-100"
+            onClick={handleAdd}
+            disabled={!trimmedName || !calories}
+            className="w-full px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
           >
-            + New recipe
+            Add
           </button>
         </div>
       </div>

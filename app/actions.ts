@@ -1,7 +1,14 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/server";
-import type { LibraryIngredient, MealSlot, Recipe, ShoppingItem } from "@/lib/types";
+import type {
+  CustomMeal,
+  DailyExtra,
+  LibraryIngredient,
+  MealSlot,
+  Recipe,
+  ShoppingItem,
+} from "@/lib/types";
 
 type RecipeRow = {
   id: string;
@@ -71,7 +78,19 @@ export async function assignMealAction(
   const supabase = createAdminClient();
   const { error } = await supabase
     .from("meal_plan")
-    .upsert({ date, slot, recipe_id: recipeId }, { onConflict: "date,slot" });
+    .upsert({ date, slot, recipe_id: recipeId, custom_meal: null }, { onConflict: "date,slot" });
+  if (error) throw new Error(error.message);
+}
+
+export async function assignCustomMealAction(
+  date: string,
+  slot: MealSlot,
+  custom: CustomMeal
+): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("meal_plan")
+    .upsert({ date, slot, recipe_id: null, custom_meal: custom }, { onConflict: "date,slot" });
   if (error) throw new Error(error.message);
 }
 
@@ -216,5 +235,42 @@ export async function updateLibraryIngredientAction(
 export async function deleteLibraryIngredientAction(id: string): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase.from("ingredients").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+type DailyExtraRow = {
+  id: string;
+  date: string;
+  name: string;
+  calories: number | string;
+};
+
+function rowToDailyExtra(row: DailyExtraRow): DailyExtra {
+  return {
+    id: row.id,
+    date: row.date,
+    name: row.name,
+    calories: Number(row.calories) || 0,
+  };
+}
+
+export async function addDailyExtraAction(
+  date: string,
+  name: string,
+  calories: number
+): Promise<DailyExtra> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("daily_extras")
+    .insert({ date, name: name.trim(), calories })
+    .select()
+    .single<DailyExtraRow>();
+  if (error || !data) throw new Error(error?.message || "Failed to add extra.");
+  return rowToDailyExtra(data);
+}
+
+export async function deleteDailyExtraAction(id: string): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase.from("daily_extras").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }

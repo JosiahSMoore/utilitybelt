@@ -56,17 +56,36 @@ alter table ingredients add column if not exists fiber_per_unit numeric not null
 
 create unique index if not exists ingredients_name_lower_idx on ingredients (lower(name));
 
+-- A slot's meal is either a real recipe (recipe_id) or a one-off custom
+-- meal (custom_meal) typed in on the spot — never both. Custom meals are
+-- intentionally NOT saved to the recipes table; they only ever live here.
+alter table meal_plan add column if not exists custom_meal jsonb;
+
+-- Extra items eaten on a given day outside any planned meal slot. Simpler
+-- than a recipe ingredient on purpose — just a label and a calorie count,
+-- no protein/fiber tracking, no link back to the ingredient library (the
+-- library is only used client-side as a convenience to look up calories
+-- when adding one of these).
+create table if not exists daily_extras (
+  id uuid primary key default gen_random_uuid(),
+  date date not null,
+  name text not null,
+  calories numeric not null default 0,
+  created_at timestamptz not null default now()
+);
+
 alter table recipes enable row level security;
 alter table meal_plan enable row level security;
 alter table shopping_list_items enable row level security;
 alter table ingredients enable row level security;
+alter table daily_extras enable row level security;
 
 -- RLS blocks row access without a matching policy, but table-level access is a
 -- separate Postgres GRANT layer underneath it. New Supabase projects usually
 -- set this up automatically for service_role, but it's not guaranteed —
 -- without it, even the service role key gets "permission denied for table".
 grant usage on schema public to service_role;
-grant all on public.recipes, public.meal_plan, public.shopping_list_items, public.ingredients to service_role;
+grant all on public.recipes, public.meal_plan, public.shopping_list_items, public.ingredients, public.daily_extras to service_role;
 
 -- Migration: existing recipes predate the per-line "whole recipe" vs
 -- "per serving" toggle, so their ingredient objects have no servingMode key.
