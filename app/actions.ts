@@ -109,29 +109,43 @@ export async function syncShoppingListAction(
 ): Promise<ShoppingItem[]> {
   const supabase = createAdminClient();
 
+  // Only wipe recipe-derived items — manually/quick-added items are left
+  // alone so rebuilding the list from the meal plan doesn't erase them.
   const { error: deleteError } = await supabase
     .from("shopping_list_items")
     .delete()
-    .gte("created_at", "1970-01-01");
+    .eq("source", "recipe");
   if (deleteError) throw new Error(deleteError.message);
 
-  if (items.length === 0) return [];
+  if (items.length > 0) {
+    const payload = items.map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      unit: item.unit,
+      recipe_names: item.recipes,
+      checked: item.checked,
+      source: "recipe",
+    }));
 
-  const payload = items.map((item) => ({
-    name: item.name,
-    quantity: item.quantity,
-    unit: item.unit,
-    recipe_names: item.recipes,
-    checked: item.checked,
-  }));
+    const { error: insertError } = await supabase.from("shopping_list_items").insert(payload);
+    if (insertError) throw new Error(insertError.message);
+  }
 
-  const { data, error } = await supabase
-    .from("shopping_list_items")
-    .insert(payload)
-    .select();
+  const { data, error } = await supabase.from("shopping_list_items").select("*").order("name");
   if (error) throw new Error(error.message);
 
   return (data || []).map(rowToShoppingItem);
+}
+
+export async function addManualShoppingItemAction(name: string): Promise<ShoppingItem> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("shopping_list_items")
+    .insert({ name: name.trim(), quantity: 1, unit: "", recipe_names: [], checked: false, source: "manual" })
+    .select()
+    .single();
+  if (error || !data) throw new Error(error?.message || "Failed to add item.");
+  return rowToShoppingItem(data);
 }
 
 export async function toggleShoppingItemAction(
@@ -160,6 +174,7 @@ type IngredientLibraryRow = {
   calories_per_unit: number | string;
   protein_per_unit: number | string;
   fiber_per_unit: number | string;
+  pantry_staple: boolean;
 };
 
 type LibraryIngredientInput = {
@@ -168,6 +183,7 @@ type LibraryIngredientInput = {
   caloriesPerUnit: number;
   proteinPerUnit: number;
   fiberPerUnit: number;
+  pantryStaple: boolean;
 };
 
 function rowToLibraryIngredient(row: IngredientLibraryRow): LibraryIngredient {
@@ -178,6 +194,7 @@ function rowToLibraryIngredient(row: IngredientLibraryRow): LibraryIngredient {
     caloriesPerUnit: Number(row.calories_per_unit) || 0,
     proteinPerUnit: Number(row.protein_per_unit) || 0,
     fiberPerUnit: Number(row.fiber_per_unit) || 0,
+    pantryStaple: Boolean(row.pantry_staple),
   };
 }
 
@@ -191,6 +208,7 @@ export async function saveLibraryIngredientAction(
     calories_per_unit: input.caloriesPerUnit,
     protein_per_unit: input.proteinPerUnit,
     fiber_per_unit: input.fiberPerUnit,
+    pantry_staple: input.pantryStaple,
   };
 
   const { data: existing, error: findError } = await supabase
@@ -223,6 +241,7 @@ export async function updateLibraryIngredientAction(
       calories_per_unit: input.caloriesPerUnit,
       protein_per_unit: input.proteinPerUnit,
       fiber_per_unit: input.fiberPerUnit,
+      pantry_staple: input.pantryStaple,
     })
     .eq("id", id)
     .select()

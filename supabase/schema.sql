@@ -35,6 +35,13 @@ create table if not exists shopping_list_items (
   created_at timestamptz not null default now()
 );
 
+-- "recipe" items are wiped and regenerated every time the list is rebuilt
+-- from the meal plan; "manual" items (quick-added by hand) are left alone
+-- by a rebuild so they don't get silently deleted.
+alter table shopping_list_items add column if not exists source text not null default 'recipe';
+alter table shopping_list_items drop constraint if exists shopping_list_items_source_check;
+alter table shopping_list_items add constraint shopping_list_items_source_check check (source in ('recipe', 'manual'));
+
 -- Shared ingredient library: a name, a default unit, and calories PER ONE
 -- UNIT of that default unit (a rate, e.g. calories per gram) — not a total.
 -- Each recipe's own ingredient line (still stored in recipes.ingredients
@@ -53,6 +60,10 @@ create table if not exists ingredients (
 -- this stays safe to run against a project that already has the table.
 alter table ingredients add column if not exists protein_per_unit numeric not null default 0;
 alter table ingredients add column if not exists fiber_per_unit numeric not null default 0;
+-- Default for whether this ingredient is a pantry staple (salt, oil, etc.)
+-- that shouldn't show up on the shopping list every time. Each recipe's own
+-- ingredient line can still override this per use.
+alter table ingredients add column if not exists pantry_staple boolean not null default false;
 
 create unique index if not exists ingredients_name_lower_idx on ingredients (lower(name));
 

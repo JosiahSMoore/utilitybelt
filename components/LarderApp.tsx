@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
 import {
   Home as HomeIcon,
   BookOpen,
@@ -18,9 +19,11 @@ import {
   Flame,
   Dumbbell,
   Wheat,
+  Package,
 } from "lucide-react";
 import {
   addDailyExtraAction,
+  addManualShoppingItemAction,
   assignCustomMealAction,
   assignMealAction,
   clearMealAction,
@@ -73,6 +76,7 @@ type LibraryIngredientInput = {
   caloriesPerUnit: number;
   proteinPerUnit: number;
   fiberPerUnit: number;
+  pantryStaple: boolean;
 };
 
 function slotDisplayName(slot: MealSlotValue | null | undefined, recipes: Recipe[]): string | null {
@@ -117,12 +121,14 @@ export default function LarderApp({
   initialShoppingList,
   initialIngredientLibrary,
   initialDailyExtras,
+  initialView,
 }: {
   initialRecipes: Recipe[];
   initialMealPlan: MealPlan;
   initialShoppingList: ShoppingItem[];
   initialIngredientLibrary: LibraryIngredient[];
   initialDailyExtras: DailyExtra[];
+  initialView?: View;
 }) {
   const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
   const [mealPlan, setMealPlan] = useState<MealPlan>(initialMealPlan);
@@ -132,7 +138,7 @@ export default function LarderApp({
   );
   const [dailyExtras, setDailyExtras] = useState<DailyExtra[]>(initialDailyExtras);
 
-  const [view, setView] = useState<View>("home");
+  const [view, setView] = useState<View>(initialView ?? "home");
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [pickerSlot, setPickerSlot] = useState<{ date: string; slot: MealSlot } | null>(null);
@@ -274,6 +280,7 @@ export default function LarderApp({
         const servings = parseFloat(String(recipe.servings)) || 1;
         (recipe.ingredients || []).forEach((ing) => {
           if (!ing.name || !ing.name.trim()) return;
+          if (ing.pantryStaple) return;
           const key = ing.name.trim().toLowerCase() + "|" + (ing.unit || "");
           const enteredQty = parseFloat(ing.quantity) || 0;
           // "Whole recipe" quantities are already the total to buy. "Per
@@ -335,6 +342,17 @@ export default function LarderApp({
     } catch {
       setShoppingList(prev);
       showToast("Couldn't clear checked items — try again.");
+    }
+  }
+
+  async function addManualShoppingItem(name: string) {
+    if (!name.trim()) return;
+    try {
+      const saved = await addManualShoppingItemAction(name);
+      setShoppingList((prev) => [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)));
+      showToast("Added to shopping list.");
+    } catch {
+      showToast("Couldn't add that item — try again.");
     }
   }
 
@@ -425,6 +443,7 @@ export default function LarderApp({
             dayNutrition={dayNutrition}
             setView={setView}
             setEditingRecipe={setEditingRecipe}
+            onQuickAdd={addManualShoppingItem}
           />
         )}
 
@@ -512,6 +531,7 @@ export default function LarderApp({
             onToggle={toggleShoppingItem}
             onRebuild={buildShoppingList}
             onClearChecked={clearCheckedItems}
+            onAdd={addManualShoppingItem}
           />
         )}
       </main>
@@ -641,6 +661,7 @@ function HomeView({
   dayNutrition,
   setView,
   setEditingRecipe,
+  onQuickAdd,
 }: {
   recipes: Recipe[];
   days: ReturnType<typeof getNext7Days>;
@@ -648,8 +669,17 @@ function HomeView({
   dayNutrition: (date: string) => DayNutrition;
   setView: (v: View) => void;
   setEditingRecipe: (r: Recipe | null) => void;
+  onQuickAdd: (name: string) => void;
 }) {
   const today = days[0];
+  const [quickAddName, setQuickAddName] = useState("");
+
+  function submitQuickAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!quickAddName.trim()) return;
+    onQuickAdd(quickAddName.trim());
+    setQuickAddName("");
+  }
 
   return (
     <div>
@@ -687,7 +717,7 @@ function HomeView({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         <ActionCard
           title="Add a recipe"
           subtitle="Write down something new"
@@ -712,6 +742,25 @@ function HomeView({
           accent="bg-stone-700"
           onClick={() => setView("browse")}
         />
+      </div>
+
+      <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5 mb-8">
+        <h2 className="font-display text-lg text-stone-900 mb-3">Quick add to shopping list</h2>
+        <form onSubmit={submitQuickAdd} className="flex gap-2">
+          <input
+            value={quickAddName}
+            onChange={(e) => setQuickAddName(e.target.value)}
+            placeholder="e.g. Paper towels"
+            className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          />
+          <button
+            type="submit"
+            disabled={!quickAddName.trim()}
+            className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full disabled:opacity-40"
+          >
+            <Plus size={15} /> Add
+          </button>
+        </form>
       </div>
     </div>
   );
@@ -1080,7 +1129,7 @@ function RecipeForm({
 
         <div className="space-y-2 mb-3">
           <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-            <span className="col-span-5">Ingredient</span>
+            <span className="col-span-4">Ingredient</span>
             <span className="col-span-1">Qty</span>
             <span className="col-span-1">Unit</span>
             <span className="col-span-1 text-center" title="Calories">
@@ -1091,6 +1140,9 @@ function RecipeForm({
             </span>
             <span className="col-span-1 text-center" title="Fiber (g)">
               <Wheat size={11} className="inline" />
+            </span>
+            <span className="col-span-1 text-center" title="Pantry staple (skip in shopping list)">
+              <Package size={11} className="inline" />
             </span>
             <span className="col-span-1 text-center" title="Whole recipe vs. per serving">
               Per svg
@@ -1162,6 +1214,7 @@ function IngredientRow({
   const [promptCalories, setPromptCalories] = useState("");
   const [promptProtein, setPromptProtein] = useState("");
   const [promptFiber, setPromptFiber] = useState("");
+  const [promptPantryStaple, setPromptPantryStaple] = useState(false);
   const [saving, setSaving] = useState(false);
   const quantityRef = useRef<HTMLInputElement>(null);
 
@@ -1178,6 +1231,7 @@ function IngredientRow({
     onChange("calories", String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
     onChange("protein", String(Math.round(lib.proteinPerUnit * qty * 100) / 100));
     onChange("fiber", String(Math.round(lib.fiberPerUnit * qty * 100) / 100));
+    onChange("pantryStaple", lib.pantryStaple);
     onChange("libraryId", lib.id);
     setShowSuggestions(false);
     setShowSavePrompt(false);
@@ -1206,6 +1260,7 @@ function IngredientRow({
       setPromptCalories(qty > 0 && cals > 0 ? String(Math.round((cals / qty) * 100) / 100) : "");
       setPromptProtein(qty > 0 && protein > 0 ? String(Math.round((protein / qty) * 100) / 100) : "");
       setPromptFiber(qty > 0 && fiber > 0 ? String(Math.round((fiber / qty) * 100) / 100) : "");
+      setPromptPantryStaple(false);
       setShowSavePrompt(true);
     }, 150);
   }
@@ -1220,10 +1275,12 @@ function IngredientRow({
       caloriesPerUnit,
       proteinPerUnit: parseFloat(promptProtein) || 0,
       fiberPerUnit: parseFloat(promptFiber) || 0,
+      pantryStaple: promptPantryStaple,
     });
     setSaving(false);
     if (saved) {
       onChange("libraryId", saved.id);
+      onChange("pantryStaple", promptPantryStaple);
       setShowSavePrompt(false);
     }
   }
@@ -1235,7 +1292,7 @@ function IngredientRow({
 
   return (
     <div className="grid grid-cols-12 gap-2 items-start">
-      <div className="col-span-5 relative">
+      <div className="col-span-4 relative">
         <input
           value={ingredient.name}
           onChange={(e) => {
@@ -1320,6 +1377,24 @@ function IngredientRow({
       />
       <button
         type="button"
+        onClick={() => onChange("pantryStaple", !ingredient.pantryStaple)}
+        title={
+          ingredient.pantryStaple
+            ? "Pantry staple — skip in shopping list (click to change)"
+            : "Mark as pantry staple (skip in shopping list)"
+        }
+        className="col-span-1 h-9 flex items-center justify-center"
+      >
+        <span
+          className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+            ingredient.pantryStaple ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
+          }`}
+        >
+          {ingredient.pantryStaple && <Check size={10} className="text-amber-50" />}
+        </span>
+      </button>
+      <button
+        type="button"
         role="switch"
         aria-checked={ingredient.servingMode === "perServing"}
         onClick={() =>
@@ -1390,6 +1465,15 @@ function IngredientRow({
               className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
             />
           </div>
+          <label className="flex items-center gap-1.5 text-stone-600">
+            <input
+              type="checkbox"
+              checked={promptPantryStaple}
+              onChange={(e) => setPromptPantryStaple(e.target.checked)}
+              className="rounded border-stone-300"
+            />
+            Pantry staple (skip in shopping list)
+          </label>
           <div className="flex justify-end gap-3">
             <button type="button" onClick={dismissSavePrompt} className="text-stone-500 hover:underline">
               Not now
@@ -1966,17 +2050,27 @@ function ShoppingListView({
   onToggle,
   onRebuild,
   onClearChecked,
+  onAdd,
 }: {
   list: ShoppingItem[];
   onToggle: (id: string) => void;
   onRebuild: () => void;
   onClearChecked: () => void;
+  onAdd: (name: string) => void;
 }) {
+  const [newItemName, setNewItemName] = useState("");
   const sortedList = useMemo(
     () => [...list].sort((a, b) => Number(a.checked) - Number(b.checked)),
     [list]
   );
   const hasChecked = list.some((item) => item.checked);
+
+  function submitAdd(e: FormEvent) {
+    e.preventDefault();
+    if (!newItemName.trim()) return;
+    onAdd(newItemName.trim());
+    setNewItemName("");
+  }
 
   return (
     <div>
@@ -1993,6 +2087,22 @@ function ShoppingListView({
           </button>
         </div>
       </div>
+
+      <form onSubmit={submitAdd} className="flex gap-2 mb-4">
+        <input
+          value={newItemName}
+          onChange={(e) => setNewItemName(e.target.value)}
+          placeholder="Add an item…"
+          className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+        <button
+          type="submit"
+          disabled={!newItemName.trim()}
+          className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full disabled:opacity-40"
+        >
+          <Plus size={15} /> Add
+        </button>
+      </form>
 
       {list.length === 0 ? (
         <EmptyState title="No shopping list yet" body="Plan some meals for the week, then build your list from there." />
@@ -2013,9 +2123,11 @@ function ShoppingListView({
                   <p className="text-[11px] text-stone-400">for {item.recipes.join(", ")}</p>
                 )}
               </div>
-              <span className={`text-sm font-medium ${item.checked ? "text-stone-300" : "text-stone-600"}`}>
-                {Math.round(item.quantity * 100) / 100} {item.unit}
-              </span>
+              {item.unit && (
+                <span className={`text-sm font-medium ${item.checked ? "text-stone-300" : "text-stone-600"}`}>
+                  {Math.round(item.quantity * 100) / 100} {item.unit}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -2046,6 +2158,7 @@ function IngredientLibraryView({
   const [formCalories, setFormCalories] = useState("");
   const [formProtein, setFormProtein] = useState("");
   const [formFiber, setFormFiber] = useState("");
+  const [formPantryStaple, setFormPantryStaple] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -2059,6 +2172,7 @@ function IngredientLibraryView({
     setFormCalories("");
     setFormProtein("");
     setFormFiber("");
+    setFormPantryStaple(false);
   }
 
   function startEdit(ing: LibraryIngredient) {
@@ -2068,6 +2182,7 @@ function IngredientLibraryView({
     setFormCalories(String(ing.caloriesPerUnit));
     setFormProtein(String(ing.proteinPerUnit));
     setFormFiber(String(ing.fiberPerUnit));
+    setFormPantryStaple(ing.pantryStaple);
   }
 
   async function submitForm() {
@@ -2081,6 +2196,7 @@ function IngredientLibraryView({
       caloriesPerUnit,
       proteinPerUnit: parseFloat(formProtein) || 0,
       fiberPerUnit: parseFloat(formFiber) || 0,
+      pantryStaple: formPantryStaple,
     };
     const result = isAdding ? await onAdd(input) : await onUpdate(editingId, input);
     setSaving(false);
@@ -2126,6 +2242,8 @@ function IngredientLibraryView({
           setProtein={setFormProtein}
           fiber={formFiber}
           setFiber={setFormFiber}
+          pantryStaple={formPantryStaple}
+          setPantryStaple={setFormPantryStaple}
           onCancel={() => setEditingId(null)}
           onSubmit={submitForm}
           saving={saving}
@@ -2158,6 +2276,8 @@ function IngredientLibraryView({
                 setProtein={setFormProtein}
                 fiber={formFiber}
                 setFiber={setFormFiber}
+                pantryStaple={formPantryStaple}
+                setPantryStaple={setFormPantryStaple}
                 onCancel={() => setEditingId(null)}
                 onSubmit={submitForm}
                 saving={saving}
@@ -2166,7 +2286,17 @@ function IngredientLibraryView({
             ) : (
               <div key={ing.id} className="flex items-center justify-between px-4 py-3">
                 <div>
-                  <p className="text-sm font-medium text-stone-800">{ing.name}</p>
+                  <p className="text-sm font-medium text-stone-800 flex items-center gap-1.5">
+                    {ing.name}
+                    {ing.pantryStaple && (
+                      <span
+                        className="flex items-center gap-0.5 text-[10px] font-normal text-stone-500 bg-stone-100 px-1.5 py-0.5 rounded-full"
+                        title="Pantry staple — skipped in shopping lists by default"
+                      >
+                        <Package size={9} /> Pantry
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-stone-400">
                     {ing.caloriesPerUnit} cal · {ing.proteinPerUnit}g protein · {ing.fiberPerUnit}g fiber{" "}
                     <span className="text-stone-300">/ {ing.unit}</span>
@@ -2218,6 +2348,8 @@ function IngredientLibraryForm({
   setProtein,
   fiber,
   setFiber,
+  pantryStaple,
+  setPantryStaple,
   onCancel,
   onSubmit,
   saving,
@@ -2234,6 +2366,8 @@ function IngredientLibraryForm({
   setProtein: (v: string) => void;
   fiber: string;
   setFiber: (v: string) => void;
+  pantryStaple: boolean;
+  setPantryStaple: (v: boolean) => void;
   onCancel: () => void;
   onSubmit: () => void;
   saving: boolean;
@@ -2284,6 +2418,15 @@ function IngredientLibraryForm({
           className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
       </div>
+      <label className="flex items-center gap-1.5 text-sm text-stone-600 mb-3">
+        <input
+          type="checkbox"
+          checked={pantryStaple}
+          onChange={(e) => setPantryStaple(e.target.checked)}
+          className="rounded border-stone-300"
+        />
+        Pantry staple (skip in shopping list by default)
+      </label>
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
           Cancel

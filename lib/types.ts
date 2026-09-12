@@ -19,6 +19,10 @@ export type Ingredient = {
   // and calories are per single serving (toppings, garnishes) — not
   // divided, and multiplied by servings for the shopping list instead.
   servingMode?: ServingMode;
+  // Pantry staples (salt, oil, spices you always have) get skipped when
+  // building the shopping list from the meal plan. Defaults from the
+  // library ingredient when picked, but overridable per recipe.
+  pantryStaple?: boolean;
 };
 
 // A shared ingredient library entry. The *PerUnit fields are RATES — the
@@ -30,6 +34,7 @@ export type LibraryIngredient = {
   caloriesPerUnit: number;
   proteinPerUnit: number;
   fiberPerUnit: number;
+  pantryStaple: boolean;
 };
 
 export type Recipe = {
