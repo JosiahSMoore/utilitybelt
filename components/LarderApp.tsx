@@ -1,0 +1,1201 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import {
+  Home as HomeIcon,
+  BookOpen,
+  CalendarDays,
+  ShoppingCart,
+  Plus,
+  X,
+  Trash2,
+  Pencil,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  Printer,
+  Check,
+  Flame,
+} from "lucide-react";
+import {
+  assignMealAction,
+  clearMealAction,
+  deleteRecipeAction,
+  saveRecipeAction,
+  syncShoppingListAction,
+  toggleShoppingItemAction,
+} from "@/app/actions";
+import { CATEGORIES, CATEGORY_STYLE, MEAL_SLOTS, SLOT_LABEL, UNITS } from "@/lib/constants";
+import { emptyIngredient, emptyRecipe, generateId, getNext7Days, recipeCalories } from "@/lib/helpers";
+import type { Ingredient, MealPlan, MealSlot, Recipe, ShoppingItem } from "@/lib/types";
+
+type View =
+  | "home"
+  | "addRecipe"
+  | "browse"
+  | "recipeDetail"
+  | "mealPlan"
+  | "shoppingList";
+
+function useToast(): [string | null, (msg: string) => void] {
+  const [message, setMessage] = useState<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function show(msg: string) {
+    setMessage(msg);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setMessage(null), 2400);
+  }
+  return [message, show];
+}
+
+export default function LarderApp({
+  initialRecipes,
+  initialMealPlan,
+  initialShoppingList,
+}: {
+  initialRecipes: Recipe[];
+  initialMealPlan: MealPlan;
+  initialShoppingList: ShoppingItem[];
+}) {
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes);
+  const [mealPlan, setMealPlan] = useState<MealPlan>(initialMealPlan);
+  const [shoppingList, setShoppingList] = useState<ShoppingItem[]>(initialShoppingList);
+
+  const [view, setView] = useState<View>("home");
+  const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+  const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
+  const [pickerSlot, setPickerSlot] = useState<{ date: string; slot: MealSlot } | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [activeDayIdx, setActiveDayIdx] = useState(0);
+
+  const [browseQuery, setBrowseQuery] = useState("");
+  const [browseCategory, setBrowseCategory] = useState("All");
+
+  const [toast, showToast] = useToast();
+
+  const days = useMemo(() => getNext7Days(), []);
+
+  async function saveRecipe(recipe: Recipe) {
+    try {
+      const saved = await saveRecipeAction(recipe);
+      const exists = recipes.some((r) => r.id === saved.id);
+      const next = exists
+        ? recipes.map((r) => (r.id === saved.id ? saved : r))
+        : [...recipes, saved];
+      setRecipes(next);
+      setEditingRecipe(null);
+      setView("browse");
+      showToast(exists ? "Recipe updated." : "Recipe saved.");
+    } catch {
+      showToast("Couldn't save recipe — try again.");
+    }
+  }
+
+  async function deleteRecipe(id: string) {
+    try {
+      await deleteRecipeAction(id);
+      const next = recipes.filter((r) => r.id !== id);
+      const nextPlan: MealPlan = {};
+      Object.entries(mealPlan).forEach(([date, slots]) => {
+        const cleaned = { ...slots };
+        MEAL_SLOTS.forEach((mt) => {
+          if (cleaned[mt] === id) cleaned[mt] = null;
+        });
+        nextPlan[date] = cleaned;
+      });
+      setRecipes(next);
+      setMealPlan(nextPlan);
+      setConfirmDeleteId(null);
+      setSelectedRecipeId(null);
+      setView("browse");
+      showToast("Recipe deleted.");
+    } catch {
+      showToast("Couldn't delete recipe — try again.");
+    }
+  }
+
+  async function assignMeal(date: string, slot: MealSlot, recipeId: string) {
+    const prev = mealPlan;
+    const next = { ...mealPlan, [date]: { ...(mealPlan[date] || {}), [slot]: recipeId } };
+    setMealPlan(next);
+    setPickerSlot(null);
+    try {
+      await assignMealAction(date, slot, recipeId);
+    } catch {
+      setMealPlan(prev);
+      showToast("Couldn't save that meal — try again.");
+    }
+  }
+
+  async function clearMeal(date: string, slot: MealSlot) {
+    const prev = mealPlan;
+    const next = { ...mealPlan, [date]: { ...(mealPlan[date] || {}), [slot]: null } };
+    setMealPlan(next);
+    setPickerSlot(null);
+    try {
+      await clearMealAction(date, slot);
+    } catch {
+      setMealPlan(prev);
+      showToast("Couldn't clear that meal — try again.");
+    }
+  }
+
+  function dayCalories(date: string) {
+    const slots = mealPlan[date] || {};
+    return MEAL_SLOTS.reduce((sum, mt) => {
+      const r = recipes.find((rc) => rc.id === slots[mt]);
+      return sum + (r ? recipeCalories(r).perServing : 0);
+    }, 0);
+  }
+
+  async function buildShoppingList() {
+    const map: Record<
+      string,
+      { name: string; unit: string; quantity: number; recipes: Set<string> }
+    > = {};
+
+    days.forEach((day) => {
+      const slots = mealPlan[day.date];
+      if (!slots) return;
+      MEAL_SLOTS.forEach((mt) => {
+        const recipe = recipes.find((r) => r.id === slots[mt]);
+        if (!recipe) return;
+        (recipe.ingredients || []).forEach((ing) => {
+          if (!ing.name || !ing.name.trim()) return;
+          const key = ing.name.trim().toLowerCase() + "|" + (ing.unit || "");
+          const qty = parseFloat(ing.quantity) || 0;
+          if (!map[key]) {
+            map[key] = { name: ing.name.trim(), unit: ing.unit || "", quantity: 0, recipes: new Set() };
+          }
+          map[key].quantity += qty;
+          map[key].recipes.add(recipe.name);
+        });
+      });
+    });
+
+    const list: ShoppingItem[] = Object.values(map)
+      .map((item) => ({
+        id: generateId(),
+        name: item.name,
+        unit: item.unit,
+        quantity: item.quantity,
+        recipes: Array.from(item.recipes),
+        checked: false,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    try {
+      const saved = await syncShoppingListAction(list);
+      setShoppingList(saved);
+      setView("shoppingList");
+      showToast(saved.length ? "Shopping list ready." : "No meals planned yet — nothing to shop for.");
+    } catch {
+      showToast("Couldn't build the shopping list — try again.");
+    }
+  }
+
+  async function toggleShoppingItem(id: string) {
+    const prev = shoppingList;
+    const next = shoppingList.map((i) => (i.id === id ? { ...i, checked: !i.checked } : i));
+    setShoppingList(next);
+    const item = next.find((i) => i.id === id);
+    try {
+      if (item) await toggleShoppingItemAction(id, item.checked);
+    } catch {
+      setShoppingList(prev);
+      showToast("Couldn't update that item — try again.");
+    }
+  }
+
+  const filteredRecipes = recipes.filter((r) => {
+    const matchesQuery = r.name.toLowerCase().includes(browseQuery.toLowerCase());
+    const matchesCategory = browseCategory === "All" || r.category === browseCategory;
+    return matchesQuery && matchesCategory;
+  });
+
+  const todaysPlan = mealPlan[days[0]?.date] || {};
+
+  return (
+    <div className="min-h-screen bg-stone-100 pb-20 md:pb-8">
+      <TopBar view={view} setView={setView} />
+
+      <main className="max-w-5xl mx-auto px-4 pt-6 md:pt-10">
+        {view === "home" && (
+          <HomeView
+            recipes={recipes}
+            days={days}
+            todaysPlan={todaysPlan}
+            dayCalories={dayCalories}
+            setView={setView}
+            setEditingRecipe={setEditingRecipe}
+          />
+        )}
+
+        {view === "addRecipe" && (
+          <RecipeForm
+            initial={editingRecipe || emptyRecipe()}
+            onCancel={() => {
+              setEditingRecipe(null);
+              setView(editingRecipe ? "recipeDetail" : "browse");
+            }}
+            onSave={saveRecipe}
+          />
+        )}
+
+        {view === "browse" && (
+          <BrowseView
+            recipes={filteredRecipes}
+            query={browseQuery}
+            setQuery={setBrowseQuery}
+            category={browseCategory}
+            setCategory={setBrowseCategory}
+            onOpen={(id) => {
+              setSelectedRecipeId(id);
+              setView("recipeDetail");
+            }}
+            onAdd={() => {
+              setEditingRecipe(null);
+              setView("addRecipe");
+            }}
+          />
+        )}
+
+        {view === "recipeDetail" &&
+          (() => {
+            const recipe = recipes.find((r) => r.id === selectedRecipeId);
+            if (!recipe) {
+              setView("browse");
+              return null;
+            }
+            return (
+              <RecipeDetail
+                recipe={recipe}
+                onBack={() => setView("browse")}
+                onEdit={() => {
+                  setEditingRecipe(recipe);
+                  setView("addRecipe");
+                }}
+                onDelete={() => setConfirmDeleteId(recipe.id)}
+                onPrint={() => showToast("4×6 label export is coming in a future version.")}
+              />
+            );
+          })()}
+
+        {view === "mealPlan" && (
+          <MealPlanView
+            days={days}
+            mealPlan={mealPlan}
+            recipes={recipes}
+            dayCalories={dayCalories}
+            activeDayIdx={activeDayIdx}
+            setActiveDayIdx={setActiveDayIdx}
+            openPicker={(date, slot) => setPickerSlot({ date, slot })}
+            onBuildList={buildShoppingList}
+          />
+        )}
+
+        {view === "shoppingList" && (
+          <ShoppingListView
+            list={shoppingList}
+            onToggle={toggleShoppingItem}
+            onRebuild={buildShoppingList}
+          />
+        )}
+      </main>
+
+      {pickerSlot && (
+        <RecipePickerModal
+          recipes={recipes}
+          slot={pickerSlot}
+          current={(mealPlan[pickerSlot.date] || {})[pickerSlot.slot]}
+          onPick={(id) => assignMeal(pickerSlot.date, pickerSlot.slot, id)}
+          onClear={() => clearMeal(pickerSlot.date, pickerSlot.slot)}
+          onClose={() => setPickerSlot(null)}
+          onAddNew={() => {
+            setPickerSlot(null);
+            setEditingRecipe(null);
+            setView("addRecipe");
+          }}
+        />
+      )}
+
+      {confirmDeleteId && (
+        <ConfirmModal
+          message="Delete this recipe? It'll be removed from any planned meals too."
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => deleteRecipe(confirmDeleteId)}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-20 md:bottom-6 left-1/2 -translate-x-1/2 bg-stone-900 text-amber-50 text-sm px-4 py-2 rounded-full shadow-lg z-50">
+          {toast}
+        </div>
+      )}
+
+      <BottomNav view={view} setView={setView} />
+    </div>
+  );
+}
+
+/* ---------- Navigation ---------- */
+
+function NavItems({
+  view,
+  setView,
+  orientation,
+}: {
+  view: View;
+  setView: (v: View) => void;
+  orientation: "row" | "col";
+}) {
+  const items: { key: View; label: string; Icon: typeof HomeIcon }[] = [
+    { key: "home", label: "Home", Icon: HomeIcon },
+    { key: "browse", label: "Recipes", Icon: BookOpen },
+    { key: "mealPlan", label: "Meal Plan", Icon: CalendarDays },
+    { key: "shoppingList", label: "Shopping", Icon: ShoppingCart },
+  ];
+  const isRow = orientation === "row";
+  return (
+    <>
+      {items.map(({ key, label, Icon }) => {
+        const active = view === key || (key === "browse" && (view === "recipeDetail" || view === "addRecipe"));
+        return (
+          <button
+            key={key}
+            onClick={() => setView(key)}
+            className={
+              isRow
+                ? `flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+                    active ? "bg-emerald-800 text-amber-50" : "text-stone-600 hover:bg-stone-200"
+                  }`
+                : `flex flex-col items-center justify-center gap-0.5 flex-1 py-2 text-xs font-medium ${
+                    active ? "text-emerald-800" : "text-stone-400"
+                  }`
+            }
+          >
+            <Icon size={isRow ? 16 : 20} strokeWidth={active ? 2.4 : 2} />
+            <span>{label}</span>
+          </button>
+        );
+      })}
+    </>
+  );
+}
+
+function TopBar({ view, setView }: { view: View; setView: (v: View) => void }) {
+  return (
+    <header className="hidden md:flex items-center justify-between max-w-5xl mx-auto px-4 pt-6">
+      <button onClick={() => setView("home")} className="font-display text-2xl text-stone-900 tracking-tight">
+        The Larder
+      </button>
+      <nav className="flex items-center gap-1 bg-stone-200/60 p-1 rounded-full">
+        <NavItems view={view} setView={setView} orientation="row" />
+      </nav>
+    </header>
+  );
+}
+
+function BottomNav({ view, setView }: { view: View; setView: (v: View) => void }) {
+  return (
+    <nav className="md:hidden fixed bottom-0 inset-x-0 bg-amber-50 border-t border-stone-200 flex z-40">
+      <NavItems view={view} setView={setView} orientation="col" />
+    </nav>
+  );
+}
+
+/* ---------- Home ---------- */
+
+function HomeView({
+  recipes,
+  days,
+  todaysPlan,
+  dayCalories,
+  setView,
+  setEditingRecipe,
+}: {
+  recipes: Recipe[];
+  days: ReturnType<typeof getNext7Days>;
+  todaysPlan: MealPlan[string];
+  dayCalories: (date: string) => number;
+  setView: (v: View) => void;
+  setEditingRecipe: (r: Recipe | null) => void;
+}) {
+  const today = days[0];
+
+  function recipeName(id: string | null | undefined) {
+    const r = recipes.find((rc) => rc.id === id);
+    return r ? r.name : null;
+  }
+
+  return (
+    <div>
+      <div className="mb-6 md:hidden">
+        <h1 className="font-display text-3xl text-stone-900">The Larder</h1>
+        <p className="text-stone-500 text-sm mt-1">Your recipes, meal plan, and shopping list.</p>
+      </div>
+
+      <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5 mb-8">
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="font-display text-xl text-stone-900">
+            Today · {today.weekday} {today.month} {today.dayNum}
+          </h2>
+          <span className="flex items-center gap-1 text-orange-800 text-sm font-medium">
+            <Flame size={15} /> {dayCalories(today.date)} cal
+          </span>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {MEAL_SLOTS.map((slot) => {
+            const name = recipeName(todaysPlan[slot]);
+            return (
+              <div key={slot} className="text-sm">
+                <p className="text-stone-400 uppercase tracking-wide text-[11px] mb-1 flex items-center gap-1">
+                  {SLOT_LABEL[slot]}
+                  {name && <Check size={11} className="text-emerald-600" strokeWidth={3} />}
+                </p>
+                <p className="text-stone-800 font-medium truncate">{name || "—"}</p>
+              </div>
+            );
+          })}
+        </div>
+        <button
+          onClick={() => setView("mealPlan")}
+          className="mt-4 text-sm text-emerald-800 font-medium hover:underline"
+        >
+          Go to meal plan →
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <ActionCard
+          title="Add a recipe"
+          subtitle="Write down something new"
+          Icon={Plus}
+          accent="bg-emerald-800"
+          onClick={() => {
+            setEditingRecipe(null);
+            setView("addRecipe");
+          }}
+        />
+        <ActionCard
+          title="Build meal plan"
+          subtitle="Plan the next 7 days"
+          Icon={CalendarDays}
+          accent="bg-orange-700"
+          onClick={() => setView("mealPlan")}
+        />
+        <ActionCard
+          title="Browse recipes"
+          subtitle={`${recipes.length} saved`}
+          Icon={BookOpen}
+          accent="bg-stone-700"
+          onClick={() => setView("browse")}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ActionCard({
+  title,
+  subtitle,
+  Icon,
+  accent,
+  onClick,
+}: {
+  title: string;
+  subtitle: string;
+  Icon: typeof HomeIcon;
+  accent: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-left bg-amber-50 border border-stone-200 rounded-2xl p-5 hover:border-stone-300 hover:shadow-sm transition-all"
+    >
+      <div className={`w-10 h-10 rounded-full ${accent} flex items-center justify-center mb-4`}>
+        <Icon size={18} className="text-amber-50" />
+      </div>
+      <p className="font-display text-lg text-stone-900">{title}</p>
+      <p className="text-stone-500 text-sm mt-0.5">{subtitle}</p>
+    </button>
+  );
+}
+
+/* ---------- Browse ---------- */
+
+function BrowseView({
+  recipes,
+  query,
+  setQuery,
+  category,
+  setCategory,
+  onOpen,
+  onAdd,
+}: {
+  recipes: Recipe[];
+  query: string;
+  setQuery: (q: string) => void;
+  category: string;
+  setCategory: (c: string) => void;
+  onOpen: (id: string) => void;
+  onAdd: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="font-display text-2xl text-stone-900">Recipes</h1>
+        <button
+          onClick={onAdd}
+          className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+        >
+          <Plus size={15} /> Add
+        </button>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search recipes…"
+            className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          />
+        </div>
+        <div className="flex gap-1.5 overflow-x-auto">
+          {["All", ...CATEGORIES].map((c) => (
+            <button
+              key={c}
+              onClick={() => setCategory(c)}
+              className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium border ${
+                category === c ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+              }`}
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {recipes.length === 0 ? (
+        <EmptyState
+          title="No recipes yet"
+          body="Add your first recipe to start building your book."
+          actionLabel="Add a recipe"
+          onAction={onAdd}
+        />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {recipes.map((r) => {
+            const { perServing } = recipeCalories(r);
+            return (
+              <button
+                key={r.id}
+                onClick={() => onOpen(r.id)}
+                className="text-left bg-amber-50 border border-stone-200 rounded-xl p-4 hover:border-stone-300 hover:shadow-sm transition-all"
+              >
+                <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full mb-2 ${CATEGORY_STYLE[r.category]}`}>
+                  {r.category}
+                </span>
+                <p className="font-display text-lg text-stone-900 leading-snug">{r.name || "Untitled recipe"}</p>
+                <div className="flex items-center gap-3 mt-2 text-xs text-stone-500">
+                  <span>{r.ingredients.length} ingredients</span>
+                  <span className="flex items-center gap-1">
+                    <Flame size={12} /> {perServing} cal/serving
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmptyState({
+  title,
+  body,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  body: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="text-center py-16 border border-dashed border-stone-300 rounded-2xl">
+      <p className="font-display text-xl text-stone-800">{title}</p>
+      <p className="text-stone-500 text-sm mt-1">{body}</p>
+      {actionLabel && (
+        <button onClick={onAction} className="mt-4 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full">
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Recipe Detail ---------- */
+
+function RecipeDetail({
+  recipe,
+  onBack,
+  onEdit,
+  onDelete,
+  onPrint,
+}: {
+  recipe: Recipe;
+  onBack: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onPrint: () => void;
+}) {
+  const { total, perServing } = recipeCalories(recipe);
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
+        <ChevronLeft size={16} /> Back to recipes
+      </button>
+
+      <div className="bg-amber-50 border border-stone-200 rounded-2xl p-6">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full mb-2 ${CATEGORY_STYLE[recipe.category]}`}>
+              {recipe.category}
+            </span>
+            <h1 className="font-display text-3xl text-stone-900">{recipe.name}</h1>
+            <p className="text-stone-500 text-sm mt-1">
+              {recipe.servings} servings · {perServing} cal/serving · {total} cal total
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onPrint}
+              title="Export as 4×6 label PDF (coming soon)"
+              className="w-9 h-9 flex items-center justify-center rounded-full border border-stone-200 text-stone-500 hover:bg-stone-100"
+            >
+              <Printer size={15} />
+            </button>
+            <button
+              onClick={onEdit}
+              className="w-9 h-9 flex items-center justify-center rounded-full border border-stone-200 text-stone-600 hover:bg-stone-100"
+            >
+              <Pencil size={15} />
+            </button>
+            <button
+              onClick={onDelete}
+              className="w-9 h-9 flex items-center justify-center rounded-full border border-stone-200 text-orange-700 hover:bg-orange-50"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-8 mt-6">
+          <div>
+            <h2 className="font-display text-lg text-stone-900 mb-3">Ingredients</h2>
+            <table className="w-full text-sm">
+              <tbody>
+                {recipe.ingredients.map((ing) => (
+                  <tr key={ing.id} className="border-b border-stone-200 last:border-0">
+                    <td className="py-2 text-stone-800">{ing.name}</td>
+                    <td className="py-2 text-stone-500 text-right whitespace-nowrap">
+                      {ing.quantity} {ing.unit}
+                    </td>
+                    <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <h2 className="font-display text-lg text-stone-900 mb-3">Instructions</h2>
+            <p className="text-stone-700 text-sm whitespace-pre-wrap leading-relaxed">
+              {recipe.instructions || "No instructions added."}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Recipe Form ---------- */
+
+function RecipeForm({
+  initial,
+  onCancel,
+  onSave,
+}: {
+  initial: Recipe;
+  onCancel: () => void;
+  onSave: (r: Recipe) => void;
+}) {
+  const [recipe, setRecipe] = useState<Recipe>(initial);
+
+  function updateField<K extends keyof Recipe>(field: K, value: Recipe[K]) {
+    setRecipe((r) => ({ ...r, [field]: value }));
+  }
+
+  function updateIngredient(id: string, field: keyof Ingredient, value: string) {
+    setRecipe((r) => ({
+      ...r,
+      ingredients: r.ingredients.map((ing) => (ing.id === id ? { ...ing, [field]: value } : ing)),
+    }));
+  }
+
+  function addIngredientRow() {
+    setRecipe((r) => ({ ...r, ingredients: [...r.ingredients, emptyIngredient()] }));
+  }
+
+  function removeIngredientRow(id: string) {
+    setRecipe((r) => ({ ...r, ingredients: r.ingredients.filter((ing) => ing.id !== id) }));
+  }
+
+  function handleSave() {
+    if (!recipe.name.trim()) return;
+    const cleaned = {
+      ...recipe,
+      ingredients: recipe.ingredients.filter((i) => i.name.trim()),
+    };
+    if (cleaned.ingredients.length === 0) cleaned.ingredients = [emptyIngredient()];
+    onSave(cleaned);
+  }
+
+  const { perServing } = recipeCalories(recipe);
+
+  return (
+    <div>
+      <button onClick={onCancel} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
+        <ChevronLeft size={16} /> Cancel
+      </button>
+
+      <div className="bg-amber-50 border border-stone-200 rounded-2xl p-6">
+        <h1 className="font-display text-2xl text-stone-900 mb-5">{initial.name ? "Edit recipe" : "New recipe"}</h1>
+
+        <div className="grid sm:grid-cols-2 gap-4 mb-6">
+          <div className="sm:col-span-2">
+            <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Recipe name</label>
+            <input
+              value={recipe.name}
+              onChange={(e) => updateField("name", e.target.value)}
+              placeholder="e.g. Weeknight Chili"
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Category</label>
+            <select
+              value={recipe.category}
+              onChange={(e) => updateField("category", e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Servings</label>
+            <input
+              type="number"
+              min="1"
+              value={recipe.servings}
+              onChange={(e) => updateField("servings", e.target.value)}
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Ingredients</label>
+          <span className="flex items-center gap-1 text-xs text-orange-800 font-medium">
+            <Flame size={12} /> {perServing} cal/serving
+          </span>
+        </div>
+
+        <div className="space-y-2 mb-3">
+          <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
+            <span className="col-span-5">Ingredient</span>
+            <span className="col-span-2">Quantity</span>
+            <span className="col-span-2">Unit</span>
+            <span className="col-span-2">Calories</span>
+          </div>
+          {recipe.ingredients.map((ing) => (
+            <div key={ing.id} className="grid grid-cols-12 gap-2 items-center">
+              <input
+                value={ing.name}
+                onChange={(e) => updateIngredient(ing.id, "name", e.target.value)}
+                placeholder="Ingredient"
+                className="col-span-5 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+              <input
+                type="number"
+                value={ing.quantity}
+                onChange={(e) => updateIngredient(ing.id, "quantity", e.target.value)}
+                placeholder="0"
+                className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+              <select
+                value={ing.unit}
+                onChange={(e) => updateIngredient(ing.id, "unit", e.target.value)}
+                className="col-span-2 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              >
+                {UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={ing.calories}
+                onChange={(e) => updateIngredient(ing.id, "calories", e.target.value)}
+                placeholder="0"
+                className="col-span-2 px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+              <button
+                onClick={() => removeIngredientRow(ing.id)}
+                disabled={recipe.ingredients.length === 1}
+                className="col-span-1 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
+              >
+                <Trash2 size={15} />
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <button onClick={addIngredientRow} className="flex items-center gap-1 text-sm text-emerald-800 font-medium mb-6 hover:underline">
+          <Plus size={14} /> Add ingredient
+        </button>
+
+        <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Instructions</label>
+        <textarea
+          value={recipe.instructions}
+          onChange={(e) => updateField("instructions", e.target.value)}
+          rows={6}
+          placeholder="Step by step…"
+          className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        />
+
+        <div className="flex justify-end gap-2 mt-6">
+          <button onClick={onCancel} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!recipe.name.trim()}
+            className="px-5 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
+          >
+            Save recipe
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Meal Plan ---------- */
+
+function MealPlanView({
+  days,
+  mealPlan,
+  recipes,
+  dayCalories,
+  activeDayIdx,
+  setActiveDayIdx,
+  openPicker,
+  onBuildList,
+}: {
+  days: ReturnType<typeof getNext7Days>;
+  mealPlan: MealPlan;
+  recipes: Recipe[];
+  dayCalories: (date: string) => number;
+  activeDayIdx: number;
+  setActiveDayIdx: (i: number) => void;
+  openPicker: (date: string, slot: MealSlot) => void;
+  onBuildList: () => void;
+}) {
+  const activeDay = days[activeDayIdx];
+
+  function recipeName(id: string | null | undefined) {
+    const r = recipes.find((rc) => rc.id === id);
+    return r ? r.name : null;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="font-display text-2xl text-stone-900">Meal plan</h1>
+        <button
+          onClick={onBuildList}
+          className="flex items-center gap-1.5 bg-orange-700 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+        >
+          <ShoppingCart size={15} /> Build shopping list
+        </button>
+      </div>
+
+      {recipes.length === 0 && (
+        <p className="text-sm text-stone-500 mb-4 bg-amber-100 border border-amber-200 rounded-lg px-3 py-2">
+          Add a few recipes first so you have something to plan with.
+        </p>
+      )}
+
+      {/* Desktop grid */}
+      <div className="hidden md:block bg-amber-50 border border-stone-200 rounded-2xl overflow-hidden">
+        <div className="grid grid-cols-8 border-b border-stone-200">
+          <div className="p-3"></div>
+          {days.map((d) => (
+            <div key={d.date} className={`p-3 text-center ${d.isToday ? "bg-emerald-50" : ""}`}>
+              <p className="text-[11px] uppercase tracking-wide text-stone-400">{d.weekday}</p>
+              <p className="font-display text-lg text-stone-900">{d.dayNum}</p>
+              <p className="flex items-center justify-center gap-1 text-[11px] text-orange-800 font-medium mt-0.5">
+                <Flame size={10} /> {dayCalories(d.date)}
+              </p>
+            </div>
+          ))}
+        </div>
+        {MEAL_SLOTS.map((slot) => (
+          <div key={slot} className="grid grid-cols-8 border-b border-stone-100 last:border-0">
+            <div className="p-3 text-xs font-medium text-stone-500 flex items-center">{SLOT_LABEL[slot]}</div>
+            {days.map((d) => {
+              const rid = (mealPlan[d.date] || {})[slot];
+              const name = recipeName(rid);
+              return (
+                <button
+                  key={d.date}
+                  onClick={() => openPicker(d.date, slot)}
+                  className={`m-1.5 p-2 rounded-lg text-xs text-left border transition-colors ${
+                    name
+                      ? "bg-emerald-800 text-amber-50 border-emerald-800"
+                      : "border-dashed border-stone-300 text-stone-400 hover:border-stone-400"
+                  }`}
+                >
+                  {name || "+ Add"}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+
+      {/* Mobile day view */}
+      <div className="md:hidden">
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
+          {days.map((d, idx) => (
+            <button
+              key={d.date}
+              onClick={() => setActiveDayIdx(idx)}
+              className={`flex flex-col items-center px-3.5 py-2 rounded-xl min-w-[56px] ${
+                idx === activeDayIdx ? "bg-emerald-800 text-amber-50" : "bg-amber-50 border border-stone-200 text-stone-600"
+              }`}
+            >
+              <span className="text-[10px] uppercase tracking-wide">{d.weekday}</span>
+              <span className="font-display text-base">{d.dayNum}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between mb-3">
+          <p className="font-display text-lg text-stone-900">
+            {activeDay.weekday} {activeDay.month} {activeDay.dayNum}
+          </p>
+          <span className="flex items-center gap-1 text-orange-800 text-sm font-medium">
+            <Flame size={14} /> {dayCalories(activeDay.date)} cal
+          </span>
+        </div>
+
+        <div className="space-y-2">
+          {MEAL_SLOTS.map((slot) => {
+            const rid = (mealPlan[activeDay.date] || {})[slot];
+            const name = recipeName(rid);
+            return (
+              <button
+                key={slot}
+                onClick={() => openPicker(activeDay.date, slot)}
+                className="w-full flex items-center justify-between bg-amber-50 border border-stone-200 rounded-xl px-4 py-3 text-left"
+              >
+                <div>
+                  <p className="text-[11px] uppercase tracking-wide text-stone-400">{SLOT_LABEL[slot]}</p>
+                  <p className={`text-sm font-medium mt-0.5 ${name ? "text-stone-900" : "text-stone-400"}`}>
+                    {name || "Tap to add"}
+                  </p>
+                </div>
+                <ChevronRight size={16} className="text-stone-400" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecipePickerModal({
+  recipes,
+  slot,
+  current,
+  onPick,
+  onClear,
+  onClose,
+  onAddNew,
+}: {
+  recipes: Recipe[];
+  slot: { date: string; slot: MealSlot };
+  current: string | null | undefined;
+  onPick: (id: string) => void;
+  onClear: () => void;
+  onClose: () => void;
+  onAddNew: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const filtered = recipes.filter((r) => r.name.toLowerCase().includes(query.toLowerCase()));
+
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-amber-50 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-200">
+          <h2 className="font-display text-lg text-stone-900">{SLOT_LABEL[slot.slot]}</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-4 pb-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search recipes…"
+              className="w-full pl-8 pr-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            />
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5">
+          {filtered.length === 0 && <p className="text-sm text-stone-500 text-center py-6">No recipes match.</p>}
+          {filtered.map((r) => {
+            const { perServing } = recipeCalories(r);
+            return (
+              <button
+                key={r.id}
+                onClick={() => onPick(r.id)}
+                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-left border ${
+                  current === r.id ? "border-emerald-700 bg-emerald-50" : "border-stone-200 hover:bg-stone-50"
+                }`}
+              >
+                <div>
+                  <p className="text-sm font-medium text-stone-800">{r.name}</p>
+                  <p className="text-xs text-stone-400">
+                    {r.category} · {perServing} cal
+                  </p>
+                </div>
+                {current === r.id && <Check size={16} className="text-emerald-700" />}
+              </button>
+            );
+          })}
+        </div>
+        <div className="p-4 border-t border-stone-200 flex gap-2">
+          {current && (
+            <button
+              onClick={onClear}
+              className="flex-1 px-4 py-2 rounded-full text-sm font-medium text-orange-700 border border-orange-200 hover:bg-orange-50"
+            >
+              Clear meal
+            </button>
+          )}
+          <button
+            onClick={onAddNew}
+            className="flex-1 px-4 py-2 rounded-full text-sm font-medium text-stone-600 border border-stone-200 hover:bg-stone-100"
+          >
+            + New recipe
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Shopping List ---------- */
+
+function ShoppingListView({
+  list,
+  onToggle,
+  onRebuild,
+}: {
+  list: ShoppingItem[];
+  onToggle: (id: string) => void;
+  onRebuild: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h1 className="font-display text-2xl text-stone-900">Shopping list</h1>
+        <button onClick={onRebuild} className="text-sm font-medium text-emerald-800 hover:underline">
+          Rebuild from plan
+        </button>
+      </div>
+
+      {list.length === 0 ? (
+        <EmptyState title="No shopping list yet" body="Plan some meals for the week, then build your list from there." />
+      ) : (
+        <div className="bg-amber-50 border border-stone-200 rounded-2xl divide-y divide-stone-100">
+          {list.map((item) => (
+            <button key={item.id} onClick={() => onToggle(item.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
+              <span
+                className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                  item.checked ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
+                }`}
+              >
+                {item.checked && <Check size={12} className="text-amber-50" />}
+              </span>
+              <div className="flex-1">
+                <p className={`text-sm ${item.checked ? "line-through text-stone-400" : "text-stone-800"}`}>{item.name}</p>
+                {item.recipes && item.recipes.length > 0 && (
+                  <p className="text-[11px] text-stone-400">for {item.recipes.join(", ")}</p>
+                )}
+              </div>
+              <span className={`text-sm font-medium ${item.checked ? "text-stone-300" : "text-stone-600"}`}>
+                {Math.round(item.quantity * 100) / 100} {item.unit}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Shared ---------- */
+
+function ConfirmModal({
+  message,
+  onCancel,
+  onConfirm,
+}: {
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-amber-50 rounded-2xl w-full max-w-sm p-5">
+        <p className="text-sm text-stone-700 mb-5">{message}</p>
+        <div className="flex justify-end gap-2">
+          <button onClick={onCancel} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
+            Cancel
+          </button>
+          <button onClick={onConfirm} className="px-4 py-2 rounded-full text-sm font-medium bg-orange-700 text-amber-50">
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

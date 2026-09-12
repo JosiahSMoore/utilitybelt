@@ -1,36 +1,31 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# The Larder
 
-## Getting Started
+Recipe builder, 7-day meal planner, and shopping list. Next.js (App Router) + Supabase, single-user, no auth.
 
-First, run the development server:
+## Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+1. **Create a Supabase project** at [supabase.com](https://supabase.com).
+2. **Run the schema**: open the SQL editor in your project and run the contents of `supabase/schema.sql`.
+3. **Get your keys**: in Project Settings → API, copy the Project URL and the `service_role` secret key.
+4. **Set env vars**: copy `.env.local.example` to `.env.local` and fill in `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+5. **Run it**:
+   ```bash
+   npm install
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000).
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The service role key is only ever read in server-side code (`lib/supabase/server.ts`, used by Server Components and Server Actions in `app/actions.ts`) — it's never sent to the browser. There's no login: all data in the database belongs to whoever can reach the deployed URL, which is the intended single-user setup.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deploying to Vercel
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Push this repo to GitHub.
+2. Import it in Vercel.
+3. Add the same two environment variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) in the Vercel project settings.
+4. Deploy.
 
-## Learn More
+## Architecture notes
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Data model**: `recipes` (ingredients stored as a `jsonb` array on the row), `meal_plan` (one row per date+slot, upserted), `shopping_list_items` (fully replaced each time you rebuild the list from the meal plan).
+- **No RLS policies**: all three tables have row-level security enabled with zero policies, which blocks the anon/public key entirely. Only the service role key (server-side only) can read or write.
+- **Client/server split**: `app/page.tsx` is a Server Component that fetches everything up front; `components/LarderApp.tsx` is a Client Component holding UI state, calling the Server Actions in `app/actions.ts` for every mutation and updating local state from the result (optimistic where it's cheap to roll back, e.g. meal-plan assignment).
