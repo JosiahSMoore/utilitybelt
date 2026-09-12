@@ -744,6 +744,8 @@ function BrowseView({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {recipes.map((r) => {
             const { perServing } = recipeCalories(r);
+            const { perServing: proteinPerServing } = recipeProtein(r);
+            const { perServing: fiberPerServing } = recipeFiber(r);
             return (
               <button
                 key={r.id}
@@ -754,10 +756,16 @@ function BrowseView({
                   {r.category}
                 </span>
                 <p className="font-display text-lg text-stone-900 leading-snug">{r.name || "Untitled recipe"}</p>
-                <div className="flex items-center gap-3 mt-2 text-xs text-stone-500">
+                <div className="flex items-center gap-3 mt-2 text-xs text-stone-500 flex-wrap">
                   <span>{r.ingredients.length} ingredients</span>
-                  <span className="flex items-center gap-1">
-                    <Flame size={12} /> {perServing} cal/serving
+                  <span className="flex items-center gap-1 text-orange-800 font-medium">
+                    <Flame size={12} /> {perServing} cal
+                  </span>
+                  <span className="flex items-center gap-1 text-emerald-800 font-medium">
+                    <Dumbbell size={12} /> {proteinPerServing}g
+                  </span>
+                  <span className="flex items-center gap-1 text-amber-800 font-medium">
+                    <Wheat size={12} /> {fiberPerServing}g
                   </span>
                 </div>
               </button>
@@ -930,6 +938,8 @@ function RecipeForm({
   }
 
   const { perServing } = recipeCalories(recipe);
+  const { perServing: proteinPerServing } = recipeProtein(recipe);
+  const { perServing: fiberPerServing } = recipeFiber(recipe);
 
   return (
     <div>
@@ -976,11 +986,19 @@ function RecipeForm({
           </div>
         </div>
 
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Ingredients</label>
-          <span className="flex items-center gap-1 text-xs text-orange-800 font-medium">
-            <Flame size={12} /> {perServing} cal/serving
-          </span>
+          <div className="flex items-center gap-3 text-xs font-medium">
+            <span className="flex items-center gap-1 text-orange-800">
+              <Flame size={12} /> {perServing} cal/serving
+            </span>
+            <span className="flex items-center gap-1 text-emerald-800">
+              <Dumbbell size={12} /> {proteinPerServing}g protein
+            </span>
+            <span className="flex items-center gap-1 text-amber-800">
+              <Wheat size={12} /> {fiberPerServing}g fiber
+            </span>
+          </div>
         </div>
 
         <div className="space-y-2 mb-3">
