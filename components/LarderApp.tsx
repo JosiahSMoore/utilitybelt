@@ -3111,6 +3111,7 @@ function CookingModeView({
   const [checked, setChecked] = useState<Set<string>>(() => new Set(initial.checked));
   const [activeStep, setActiveStep] = useState<number | null>(initial.step);
   const [confirmingExit, setConfirmingExit] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"ingredients" | "instructions">("ingredients");
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
@@ -3149,8 +3150,35 @@ function CookingModeView({
 
   return (
     <div className="fixed inset-0 bg-stone-100 z-50 flex flex-col overscroll-none">
+      <div className="md:hidden flex border-b border-stone-200 bg-amber-50 flex-shrink-0">
+        <button
+          onClick={() => setMobileTab("ingredients")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 ${
+            mobileTab === "ingredients"
+              ? "text-emerald-800 border-emerald-800"
+              : "text-stone-400 border-transparent"
+          }`}
+        >
+          Ingredients
+        </button>
+        <button
+          onClick={() => setMobileTab("instructions")}
+          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 ${
+            mobileTab === "instructions"
+              ? "text-emerald-800 border-emerald-800"
+              : "text-stone-400 border-transparent"
+          }`}
+        >
+          Instructions
+        </button>
+      </div>
+
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        <div className="md:w-1/3 md:border-r border-b md:border-b-0 border-stone-200 overflow-y-auto p-4 space-y-4">
+        <div
+          className={`${
+            mobileTab === "ingredients" ? "flex" : "hidden"
+          } md:flex flex-col flex-1 min-h-0 md:flex-none md:w-1/3 md:border-r border-stone-200 overflow-y-auto p-4 space-y-4`}
+        >
           {sections.map((section) => {
             const isActiveMatch =
               activeCategories.length > 0 &&
@@ -3201,7 +3229,11 @@ function CookingModeView({
           })}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        <div
+          className={`${
+            mobileTab === "instructions" ? "block" : "hidden"
+          } md:block flex-1 min-h-0 overflow-y-auto p-4 md:p-6`}
+        >
           <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
             <div className="flex flex-wrap gap-1.5">
               {steps.length > 0 && (
