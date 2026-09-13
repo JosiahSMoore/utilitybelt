@@ -2165,6 +2165,11 @@ function RecipePickerModal({
   onAddNew: () => void;
 }) {
   const [query, setQuery] = useState("");
+  // Default to the slot's own category (e.g. opening a Dinner slot starts
+  // filtered to Dinner recipes) — "All" is always one tap away.
+  const [category, setCategory] = useState(
+    CATEGORIES.includes(SLOT_LABEL[slot.slot]) ? SLOT_LABEL[slot.slot] : "All"
+  );
   const [mode, setMode] = useState<"browse" | "custom">(current?.custom ? "custom" : "browse");
   const [customName, setCustomName] = useState(current?.custom?.name ?? "");
   const [customCalories, setCustomCalories] = useState(
@@ -2177,7 +2182,11 @@ function RecipePickerModal({
     current?.custom ? String(current.custom.fiber) : ""
   );
 
-  const filtered = recipes.filter((r) => r.name.toLowerCase().includes(query.toLowerCase()));
+  const filtered = recipes.filter((r) => {
+    const matchesQuery = r.name.toLowerCase().includes(query.toLowerCase());
+    const matchesCategory = category === "All" || r.category === category;
+    return matchesQuery && matchesCategory;
+  });
 
   function submitCustom() {
     const name = customName.trim();
@@ -2203,7 +2212,7 @@ function RecipePickerModal({
 
         {mode === "browse" ? (
           <>
-            <div className="p-4 pb-2">
+            <div className="p-4 pb-2 space-y-2.5">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                 <input
@@ -2212,6 +2221,19 @@ function RecipePickerModal({
                   placeholder="Search recipes…"
                   className="w-full pl-8 pr-3 py-2 rounded-full border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto">
+                {["All", ...CATEGORIES].map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCategory(c)}
+                    className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium border ${
+                      category === c ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-4 pb-4 space-y-1.5">
