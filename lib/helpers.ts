@@ -4,6 +4,18 @@ export function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Used by Recipe Detail's serving-size multiplier and by Cooking Mode's
+// ingredient checklist (launched with that same multiplier) to show a scaled
+// quantity without touching the recipe's stored data. Non-numeric amounts
+// ("a pinch") pass through unscaled since there's nothing to multiply.
+export function scaleQuantityDisplay(quantity: string, multiplier: number): string {
+  if (multiplier === 1) return quantity;
+  const num = parseFloat(quantity);
+  if (Number.isNaN(num)) return quantity;
+  const scaled = Math.round(num * multiplier * 100) / 100;
+  return String(scaled);
+}
+
 export function emptyIngredient(): Ingredient {
   return {
     id: generateId(),

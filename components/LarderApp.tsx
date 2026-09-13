@@ -23,6 +23,7 @@ import {
   SlidersHorizontal,
   Star,
   ChefHat,
+  Minus,
 } from "lucide-react";
 import {
   addDailyExtraAction,
@@ -55,6 +56,7 @@ import {
   recipeCalories,
   recipeFiber,
   recipeProtein,
+  scaleQuantityDisplay,
 } from "@/lib/helpers";
 import type {
   CustomMeal,
@@ -168,6 +170,7 @@ export default function LarderApp({
     flexIds: string[];
     date?: string;
     slot?: MealSlot;
+    servingMultiplier: number;
   } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [activeDayIdx, setActiveDayIdx] = useState(0);
@@ -564,8 +567,12 @@ export default function LarderApp({
                 }}
                 onDelete={() => setConfirmDeleteId(recipe.id)}
                 onPrint={() => showToast("4×6 label export is coming in a future version.")}
-                onStartCooking={() =>
-                  setCookingSession({ recipe, flexIds: defaultFlexIds(recipe) })
+                onStartCooking={(multiplier) =>
+                  setCookingSession({
+                    recipe,
+                    flexIds: defaultFlexIds(recipe),
+                    servingMultiplier: multiplier,
+                  })
                 }
               />
             );
@@ -680,6 +687,7 @@ export default function LarderApp({
                     flexIds: slotValue.flexSelection ?? defaultFlexIds(recipe),
                     date: slotActionTarget.date,
                     slot: slotActionTarget.slot,
+                    servingMultiplier: 1,
                   });
                 }
                 setSlotActionTarget(null);
@@ -693,6 +701,7 @@ export default function LarderApp({
         <CookingModeView
           recipe={cookingSession.recipe}
           flexIds={cookingSession.flexIds}
+          servingMultiplier={cookingSession.servingMultiplier}
           sessionKey={cookingSessionKey(
             cookingSession.recipe.id,
             cookingSession.date,
@@ -1080,12 +1089,17 @@ function RecipeDetail({
   onEdit: () => void;
   onDelete: () => void;
   onPrint: () => void;
-  onStartCooking: () => void;
+  onStartCooking: (servingMultiplier: number) => void;
 }) {
-  const { total, perServing } = recipeCalories(recipe);
+  const [multiplier, setMultiplier] = useState(1);
+  const { perServing } = recipeCalories(recipe);
+  const { perServing: proteinPerServing } = recipeProtein(recipe);
+  const { perServing: fiberPerServing } = recipeFiber(recipe);
   const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
   const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
   const steps = parseInstructionSteps(recipe.instructions);
+  const baseServings = parseFloat(String(recipe.servings)) || 0;
+  const scaledServings = Math.round(baseServings * multiplier * 10) / 10;
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
@@ -1099,13 +1113,36 @@ function RecipeDetail({
               {recipe.category}
             </span>
             <h1 className="font-display text-3xl text-stone-900">{recipe.name}</h1>
-            <p className="text-stone-500 text-sm mt-1">
-              {recipe.servings} servings · {perServing} cal/serving · {total} cal total
-            </p>
+            <div className="flex items-center gap-3 flex-wrap mt-1.5">
+              <span className="text-stone-500 text-sm">
+                {scaledServings} serving{scaledServings === 1 ? "" : "s"}
+              </span>
+              <NutritionChips
+                nutrition={{ calories: perServing, protein: proteinPerServing, fiber: fiberPerServing }}
+                size="sm"
+              />
+            </div>
           </div>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
+            <div className="flex items-center gap-1 bg-white border border-stone-200 rounded-full p-1">
+              <button
+                onClick={() => setMultiplier((m) => Math.max(0.5, Math.round((m - 0.5) * 10) / 10))}
+                title="Scale recipe down"
+                className="w-7 h-7 flex items-center justify-center rounded-full text-stone-600 hover:bg-stone-100"
+              >
+                <Minus size={13} />
+              </button>
+              <span className="text-xs font-medium text-stone-700 w-8 text-center">{multiplier}×</span>
+              <button
+                onClick={() => setMultiplier((m) => Math.round((m + 0.5) * 10) / 10)}
+                title="Scale recipe up"
+                className="w-7 h-7 flex items-center justify-center rounded-full text-stone-600 hover:bg-stone-100"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
             <button
-              onClick={onStartCooking}
+              onClick={() => onStartCooking(multiplier)}
               className="flex items-center gap-1.5 bg-amber-700 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
             >
               <ChefHat size={15} /> Start cooking
@@ -1132,15 +1169,15 @@ function RecipeDetail({
           </div>
         </div>
 
-        <div className="grid md:grid-cols-2 gap-8 mt-6">
-          <div>
+        <div className="grid md:grid-cols-3 gap-8 mt-6">
+          <div className="md:col-span-1">
             <h2 className="font-display text-lg text-stone-900 mb-3">Ingredients</h2>
             <table className="w-full text-sm">
               <tbody>
                 {fixedIngredients.map((ing) =>
                   ing.isSectionHeader ? (
                     <tr key={ing.id}>
-                      <td colSpan={3} className="pt-4 pb-1.5 first:pt-0">
+                      <td colSpan={2} className="pt-4 pb-1.5 first:pt-0">
                         {ing.name ? (
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide whitespace-nowrap">
@@ -1162,9 +1199,8 @@ function RecipeDetail({
                         )}
                       </td>
                       <td className="py-2 text-stone-500 text-right whitespace-nowrap">
-                        {ing.quantity} {ing.unit}
+                        {scaleQuantityDisplay(ing.quantity, multiplier)} {ing.unit}
                       </td>
-                      <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
                     </tr>
                   )
                 )}
@@ -1189,9 +1225,8 @@ function RecipeDetail({
                           </span>
                         </td>
                         <td className="py-2 text-stone-500 text-right whitespace-nowrap">
-                          {ing.quantity} {ing.unit}
+                          {scaleQuantityDisplay(ing.quantity, multiplier)} {ing.unit}
                         </td>
-                        <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1203,7 +1238,7 @@ function RecipeDetail({
               </div>
             )}
           </div>
-          <div>
+          <div className="md:col-span-2">
             <h2 className="font-display text-lg text-stone-900 mb-3">Instructions</h2>
             {steps.length === 0 ? (
               <p className="text-stone-500 text-sm">No instructions added.</p>
@@ -3089,11 +3124,13 @@ function saveCookingState(key: string, state: { checked: string[]; step: number 
 function CookingModeView({
   recipe,
   flexIds,
+  servingMultiplier,
   sessionKey,
   onClose,
 }: {
   recipe: Recipe;
   flexIds: string[];
+  servingMultiplier: number;
   sessionKey: string;
   onClose: () => void;
 }) {
@@ -3218,7 +3255,7 @@ function CookingModeView({
                         <span
                           className={`flex-1 text-sm ${isChecked ? "line-through text-stone-400" : "text-stone-800"}`}
                         >
-                          {ing.name} — {ing.quantity} {ing.unit}
+                          {ing.name} — {scaleQuantityDisplay(ing.quantity, servingMultiplier)} {ing.unit}
                         </span>
                       </button>
                     );
