@@ -24,6 +24,7 @@ import {
   Star,
   ChefHat,
   Minus,
+  RefreshCw,
 } from "lucide-react";
 import {
   addDailyExtraAction,
@@ -182,6 +183,68 @@ export default function LarderApp({
   const [toast, showToast] = useToast();
 
   const days = useMemo(() => getNext7Days(), []);
+
+  const mainRef = useRef<HTMLElement | null>(null);
+  const [pullDistance, setPullDistance] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Scoped to <main> (not the whole page) so it never fires behind a
+  // fixed-position modal or Cooking Mode — those render as siblings of
+  // <main>, not descendants, so their touches never reach this listener.
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+
+    const PULL_THRESHOLD = 70;
+    const MAX_PULL = 110;
+    let startY: number | null = null;
+    let distance = 0;
+
+    function setPull(v: number) {
+      distance = v;
+      setPullDistance(v);
+    }
+
+    function handleTouchStart(e: TouchEvent) {
+      if (refreshing) return;
+      startY = window.scrollY === 0 ? e.touches[0].clientY : null;
+    }
+
+    function handleTouchMove(e: TouchEvent) {
+      if (startY === null || refreshing) return;
+      const delta = e.touches[0].clientY - startY;
+      if (delta <= 0 || window.scrollY > 0) {
+        startY = null;
+        setPull(0);
+        return;
+      }
+      e.preventDefault();
+      setPull(Math.min(delta * 0.5, MAX_PULL));
+    }
+
+    function handleTouchEnd() {
+      if (startY === null) return;
+      startY = null;
+      if (distance >= PULL_THRESHOLD) {
+        setRefreshing(true);
+        setPull(PULL_THRESHOLD);
+        window.location.reload();
+      } else {
+        setPull(0);
+      }
+    }
+
+    el.addEventListener("touchstart", handleTouchStart, { passive: true });
+    el.addEventListener("touchmove", handleTouchMove, { passive: false });
+    el.addEventListener("touchend", handleTouchEnd);
+    el.addEventListener("touchcancel", handleTouchEnd);
+    return () => {
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchmove", handleTouchMove);
+      el.removeEventListener("touchend", handleTouchEnd);
+      el.removeEventListener("touchcancel", handleTouchEnd);
+    };
+  }, [refreshing]);
 
   async function saveRecipe(recipe: Recipe) {
     try {
@@ -495,7 +558,27 @@ export default function LarderApp({
     <div className="min-h-screen bg-stone-100 pb-20 md:pb-8">
       <TopBar view={view} setView={setView} />
 
-      <main className="max-w-5xl mx-auto px-4 pt-6 md:pt-10">
+      <div
+        className="fixed top-0 inset-x-0 flex justify-center z-40 pointer-events-none transition-[transform,opacity] duration-150 ease-out"
+        style={{
+          transform: `translateY(${pullDistance > 0 || refreshing ? Math.min(pullDistance, 60) - 36 : -36}px)`,
+          opacity: pullDistance > 0 || refreshing ? 1 : 0,
+        }}
+      >
+        <div className="mt-3 w-9 h-9 rounded-full bg-amber-50 border border-stone-200 shadow flex items-center justify-center">
+          <RefreshCw
+            size={16}
+            className={`text-emerald-800 ${refreshing ? "animate-spin" : ""}`}
+            style={
+              refreshing
+                ? undefined
+                : { transform: `rotate(${Math.min((pullDistance / 70) * 180, 180)}deg)` }
+            }
+          />
+        </div>
+      </div>
+
+      <main ref={mainRef} className="max-w-5xl mx-auto px-4 pt-6 md:pt-10">
         {view === "home" && (
           <HomeView
             recipes={recipes}
@@ -969,9 +1052,11 @@ function BrowseView({
         <div className="flex items-center gap-2">
           <button
             onClick={onManageIngredients}
-            className="flex items-center gap-1.5 border border-stone-200 text-stone-600 text-sm font-medium px-3.5 py-2 rounded-full hover:bg-stone-100"
+            title="Manage ingredients"
+            className="flex items-center justify-center gap-1.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-full hover:bg-stone-100 w-9 h-9 md:w-auto md:px-3.5 md:py-2"
           >
-            <BookOpen size={15} /> Manage ingredients
+            <BookOpen size={15} />
+            <span className="hidden md:inline">Manage ingredients</span>
           </button>
           <button
             onClick={onAdd}
