@@ -1176,20 +1176,20 @@ function RecipeForm({
 
         <div className="grid sm:grid-cols-2 gap-4 mb-6">
           <div className="sm:col-span-2">
-            <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Recipe name</label>
+            <label className="text-sm sm:text-xs font-medium text-stone-500 uppercase tracking-wide">Recipe name</label>
             <input
               value={recipe.name}
               onChange={(e) => updateField("name", e.target.value)}
               placeholder="e.g. Weeknight Chili"
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              className="mt-1.5 sm:mt-1 w-full px-3.5 py-3 sm:px-3 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
             />
           </div>
           <div>
-            <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Category</label>
+            <label className="text-sm sm:text-xs font-medium text-stone-500 uppercase tracking-wide">Category</label>
             <select
               value={recipe.category}
               onChange={(e) => updateField("category", e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              className="mt-1.5 sm:mt-1 w-full px-3.5 py-3 sm:px-3 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
             >
               {CATEGORIES.map((c) => (
                 <option key={c} value={c}>
@@ -1199,13 +1199,13 @@ function RecipeForm({
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Servings</label>
+            <label className="text-sm sm:text-xs font-medium text-stone-500 uppercase tracking-wide">Servings</label>
             <input
               type="number"
               min="1"
               value={recipe.servings}
               onChange={(e) => updateField("servings", e.target.value)}
-              className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              className="mt-1.5 sm:mt-1 w-full px-3.5 py-3 sm:px-3 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
             />
           </div>
         </div>
@@ -1230,17 +1230,16 @@ function RecipeForm({
             <span className="col-span-5">Ingredient</span>
             <span className="col-span-1">Qty</span>
             <span className="col-span-1">Unit</span>
-            <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber (click a row's chip to edit)">
+            <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
               <Flame size={10} />
               <Dumbbell size={10} />
               <Wheat size={10} />
             </span>
             <span
               className="col-span-2 flex items-center justify-between"
-              title="Pantry staple · whole recipe vs. per serving · delete"
+              title="Pantry staple · delete"
             >
               <Package size={11} />
-              <span>Per svg</span>
               <span></span>
             </span>
           </div>
@@ -1257,8 +1256,10 @@ function RecipeForm({
           ))}
         </div>
 
-        <button onClick={addIngredientRow} className="flex items-center gap-1 text-sm text-emerald-800 font-medium mb-6 hover:underline">
-          <Plus size={14} /> Add ingredient
+        <button onClick={addIngredientRow} className="flex items-center gap-1.5 py-2 sm:py-0 text-base sm:text-sm text-emerald-800 font-medium mb-6 hover:underline">
+          <Plus size={16} className="sm:hidden" />
+          <Plus size={14} className="hidden sm:block" />
+          Add ingredient
         </button>
 
         {flexIngredients.length > 0 ? (
@@ -1276,18 +1277,17 @@ function RecipeForm({
                 <span className="col-span-4">Ingredient</span>
                 <span className="col-span-1">Qty</span>
                 <span className="col-span-1">Unit</span>
-                <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber (click a row's chip to edit)">
+                <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
                   <Flame size={10} />
                   <Dumbbell size={10} />
                   <Wheat size={10} />
                 </span>
                 <span
                   className="col-span-3 flex items-center justify-between"
-                  title="Pantry staple · included by default · whole recipe vs. per serving · delete"
+                  title="Pantry staple · included by default · delete"
                 >
                   <Package size={11} />
                   <Star size={11} />
-                  <span>Per svg</span>
                   <span></span>
                 </span>
               </div>
@@ -1306,37 +1306,41 @@ function RecipeForm({
             </div>
             <button
               onClick={addFlexIngredientRow}
-              className="flex items-center gap-1 text-sm text-emerald-800 font-medium mb-6 hover:underline"
+              className="flex items-center gap-1.5 py-2 sm:py-0 text-base sm:text-sm text-emerald-800 font-medium mb-6 hover:underline"
             >
-              <Plus size={14} /> Add flexible ingredient
+              <Plus size={16} className="sm:hidden" />
+              <Plus size={14} className="hidden sm:block" />
+              Add flexible ingredient
             </button>
           </>
         ) : (
           <button
             onClick={addFlexIngredientRow}
-            className="flex items-center gap-1.5 text-sm text-stone-500 font-medium mb-6 border border-dashed border-stone-300 rounded-full px-3.5 py-1.5 hover:border-stone-400 hover:text-stone-700"
+            className="flex items-center gap-1.5 text-base sm:text-sm text-stone-500 font-medium mb-6 border border-dashed border-stone-300 rounded-full px-4 py-2.5 sm:px-3.5 sm:py-1.5 hover:border-stone-400 hover:text-stone-700"
           >
-            <Plus size={14} /> Add flexible ingredients
+            <Plus size={16} className="sm:hidden" />
+            <Plus size={14} className="hidden sm:block" />
+            Add flexible ingredients
           </button>
         )}
 
-        <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Instructions</label>
+        <label className="text-sm sm:text-xs font-medium text-stone-500 uppercase tracking-wide">Instructions</label>
         <textarea
           value={recipe.instructions}
           onChange={(e) => updateField("instructions", e.target.value)}
           rows={6}
           placeholder="Step by step…"
-          className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="mt-1.5 sm:mt-1 w-full px-3.5 py-3 sm:px-3 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
 
         <div className="flex justify-end gap-2 mt-6">
-          <button onClick={onCancel} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
+          <button onClick={onCancel} className="px-5 py-3 sm:px-4 sm:py-2 rounded-full text-base sm:text-sm font-medium text-stone-600 hover:bg-stone-100">
             Cancel
           </button>
           <button
             onClick={handleSave}
             disabled={!recipe.name.trim()}
-            className="px-5 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
+            className="px-6 py-3 sm:px-5 sm:py-2 rounded-full text-base sm:text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
           >
             Save recipe
           </button>
@@ -1476,8 +1480,8 @@ function IngredientRow({
   }
 
   return (
-    <div className="grid grid-cols-12 gap-2 items-start">
-      <div className={`${isFlexRow ? "col-span-4" : "col-span-5"} relative`}>
+    <div className="grid grid-cols-4 sm:grid-cols-12 gap-2 items-start">
+      <div className={`col-span-4 ${isFlexRow ? "sm:col-span-4" : "sm:col-span-5"} relative`}>
         <input
           value={ingredient.name}
           onChange={(e) => {
@@ -1489,7 +1493,7 @@ function IngredientRow({
           onFocus={() => setShowSuggestions(true)}
           onBlur={handleNameBlur}
           placeholder="Ingredient"
-          className="w-full px-2.5 py-2 pr-7 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="w-full px-3.5 py-3 sm:px-2.5 sm:py-2 pr-7 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         {exactMatch && (
           <BookOpen size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-600" />
@@ -1503,7 +1507,7 @@ function IngredientRow({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => selectSuggestion(s)}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-emerald-50 flex items-center justify-between gap-2"
+                className="w-full text-left px-3 py-2.5 sm:py-2 text-base sm:text-sm hover:bg-emerald-50 flex items-center justify-between gap-2"
               >
                 <span className="text-stone-800 truncate">{s.name}</span>
                 <span className="text-stone-400 text-xs whitespace-nowrap">
@@ -1522,13 +1526,13 @@ function IngredientRow({
         onChange={(e) => handleQuantityChange(e.target.value)}
         placeholder="0"
         title="Quantity"
-        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        className="col-span-1 sm:col-span-1 px-2.5 py-3 sm:px-1.5 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
       />
       <select
         value={ingredient.unit}
         onChange={(e) => onChange("unit", e.target.value)}
         title="Unit"
-        className="col-span-1 px-1 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
+        className="col-span-1 sm:col-span-1 px-1.5 py-3 sm:px-1 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
       >
         {UNITS.map((u) => (
           <option key={u} value={u}>
@@ -1537,7 +1541,7 @@ function IngredientRow({
         ))}
       </select>
       <div
-        className="col-span-3 relative"
+        className="col-span-2 sm:col-span-3 relative"
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setShowMacrosEditor(false);
         }}
@@ -1545,8 +1549,8 @@ function IngredientRow({
         <button
           type="button"
           onClick={() => setShowMacrosEditor((v) => !v)}
-          title="Edit calories, protein, fiber"
-          className="w-full min-h-9 py-1 px-1 rounded-lg flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 text-xs hover:bg-stone-200/60 transition-colors"
+          title="Edit calories, protein, fiber, and whole recipe vs. per serving"
+          className="w-full min-h-11 sm:min-h-9 py-2 sm:py-1 px-1 rounded-lg flex items-center justify-center flex-wrap gap-x-2 sm:gap-x-1.5 gap-y-0.5 text-sm sm:text-xs hover:bg-stone-200/60 transition-colors"
         >
           <span className="flex items-center gap-0.5 text-orange-800 font-medium">
             <Flame size={13} /> {ingredient.calories || 0}
@@ -1560,7 +1564,7 @@ function IngredientRow({
         </button>
 
         {showMacrosEditor && (
-          <div className="absolute z-20 right-0 mt-1 w-48 bg-white border border-stone-200 rounded-lg shadow-lg p-3 space-y-2">
+          <div className="absolute z-20 right-0 mt-1 w-52 bg-white border border-stone-200 rounded-lg shadow-lg p-3 space-y-2.5">
             <div>
               <label className="text-[10px] text-stone-400 uppercase tracking-wide">Calories</label>
               <input
@@ -1568,7 +1572,7 @@ function IngredientRow({
                 autoFocus
                 value={ingredient.calories}
                 onChange={(e) => onChange("calories", e.target.value)}
-                className="mt-0.5 w-full px-2 py-1.5 rounded border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="mt-0.5 w-full px-2.5 py-2 sm:px-2 sm:py-1.5 rounded border border-stone-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
             </div>
             <div>
@@ -1577,7 +1581,7 @@ function IngredientRow({
                 type="number"
                 value={ingredient.protein}
                 onChange={(e) => onChange("protein", e.target.value)}
-                className="mt-0.5 w-full px-2 py-1.5 rounded border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="mt-0.5 w-full px-2.5 py-2 sm:px-2 sm:py-1.5 rounded border border-stone-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
             </div>
             <div>
@@ -1586,20 +1590,52 @@ function IngredientRow({
                 type="number"
                 value={ingredient.fiber}
                 onChange={(e) => onChange("fiber", e.target.value)}
-                className="mt-0.5 w-full px-2 py-1.5 rounded border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="mt-0.5 w-full px-2.5 py-2 sm:px-2 sm:py-1.5 rounded border border-stone-200 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
+            </div>
+            <div className="flex items-center justify-between pt-1">
+              <span className="text-[10px] text-stone-400 uppercase tracking-wide">
+                {ingredient.servingMode === "perServing" ? "Per serving" : "Whole recipe"}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={ingredient.servingMode === "perServing"}
+                onClick={() =>
+                  onChange("servingMode", ingredient.servingMode === "perServing" ? "whole" : "perServing")
+                }
+                title={
+                  ingredient.servingMode === "perServing"
+                    ? "Per serving — click for whole recipe"
+                    : "Whole recipe — click for per serving"
+                }
+              >
+                <span
+                  className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full transition-colors ${
+                    ingredient.servingMode === "perServing" ? "bg-emerald-700" : "bg-stone-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      ingredient.servingMode === "perServing" ? "translate-x-4" : "translate-x-0.5"
+                    }`}
+                  />
+                </span>
+              </button>
             </div>
             <button
               type="button"
               onClick={() => setShowMacrosEditor(false)}
-              className="w-full text-xs font-medium text-emerald-800 hover:underline pt-1"
+              className="w-full text-sm sm:text-xs font-medium text-emerald-800 hover:underline pt-1"
             >
               Done
             </button>
           </div>
         )}
       </div>
-      <div className={`${isFlexRow ? "col-span-3" : "col-span-2"} flex items-center justify-between`}>
+      <div
+        className={`col-span-4 ${isFlexRow ? "sm:col-span-3" : "sm:col-span-2"} flex items-center justify-between`}
+      >
         <button
           type="button"
           onClick={() => onChange("pantryStaple", !ingredient.pantryStaple)}
@@ -1608,14 +1644,14 @@ function IngredientRow({
               ? "Pantry staple — skip in shopping list (click to change)"
               : "Mark as pantry staple (skip in shopping list)"
           }
-          className="h-9 flex items-center justify-center"
+          className="h-11 sm:h-9 px-1 flex items-center justify-center"
         >
           <span
-            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+            className={`w-5 h-5 sm:w-4 sm:h-4 rounded-full border flex items-center justify-center ${
               ingredient.pantryStaple ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
             }`}
           >
-            {ingredient.pantryStaple && <Check size={10} className="text-amber-50" />}
+            {ingredient.pantryStaple && <Check size={11} className="text-amber-50" />}
           </span>
         </button>
         {isFlexRow && (
@@ -1627,58 +1663,33 @@ function IngredientRow({
                 ? "Included by default when scheduled (click to change)"
                 : "Include by default when scheduled"
             }
-            className="h-9 flex items-center justify-center"
+            className="h-11 sm:h-9 px-1 flex items-center justify-center"
           >
             <Star
-              size={15}
+              size={17}
               className={ingredient.flexDefault ? "text-amber-500 fill-amber-500" : "text-stone-300"}
             />
           </button>
         )}
         <button
           type="button"
-          role="switch"
-          aria-checked={ingredient.servingMode === "perServing"}
-          onClick={() =>
-            onChange("servingMode", ingredient.servingMode === "perServing" ? "whole" : "perServing")
-          }
-          title={
-            ingredient.servingMode === "perServing"
-              ? "Per serving — click for whole recipe"
-              : "Whole recipe — click for per serving"
-          }
-          className="h-9 flex items-center justify-center"
-        >
-          <span
-            className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
-              ingredient.servingMode === "perServing" ? "bg-emerald-700" : "bg-stone-300"
-            }`}
-          >
-            <span
-              className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                ingredient.servingMode === "perServing" ? "translate-x-3.5" : "translate-x-0.5"
-              }`}
-            />
-          </span>
-        </button>
-        <button
-          type="button"
           onClick={onRemove}
           disabled={disableRemove}
-          className="h-9 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
+          className="h-11 sm:h-9 px-1 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
         >
-          <Trash2 size={15} />
+          <Trash2 size={17} className="sm:hidden" />
+          <Trash2 size={15} className="hidden sm:block" />
         </button>
       </div>
 
       {showSavePrompt && (
-        <div className="col-span-12 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs space-y-2">
+        <div className="col-span-2 sm:col-span-12 p-3 sm:p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-sm sm:text-xs space-y-2">
           <p className="text-stone-700">Save “{trimmedName}” to your ingredient library?</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-1.5">
             <select
               value={promptUnit}
               onChange={(e) => setPromptUnit(e.target.value)}
-              className="px-1.5 py-1 rounded border border-stone-200 bg-white text-xs"
+              className="px-2 py-2 sm:px-1.5 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             >
               {UNITS.map((u) => (
                 <option key={u} value={u}>
@@ -1691,21 +1702,21 @@ function IngredientRow({
               value={promptCalories}
               onChange={(e) => setPromptCalories(e.target.value)}
               placeholder="Cal/unit"
-              className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+              className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             />
             <input
               type="number"
               value={promptProtein}
               onChange={(e) => setPromptProtein(e.target.value)}
               placeholder="Protein/unit"
-              className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+              className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             />
             <input
               type="number"
               value={promptFiber}
               onChange={(e) => setPromptFiber(e.target.value)}
               placeholder="Fiber/unit"
-              className="px-2 py-1 rounded border border-stone-200 bg-white text-xs"
+              className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             />
           </div>
           <label className="flex items-center gap-1.5 text-stone-600">
@@ -2008,11 +2019,10 @@ function RecipePickerModal({
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
                 <input
-                  autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search recipes…"
-                  className="w-full pl-8 pr-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  className="w-full pl-8 pr-3 py-2 rounded-full border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
               </div>
             </div>
