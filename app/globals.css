@@ -1,5 +1,13 @@
 @import "tailwindcss";
 
+html {
+  /* Reserve space for the vertical scrollbar even when a view is short
+     enough not to need one, so filtering a list shorter (e.g. Pantry
+     staples) doesn't shift the whole page left/right as the bar appears
+     and disappears. */
+  scrollbar-gutter: stable;
+}
+
 :root {
   --background: #f5f5f4;
   --foreground: #1c1917;

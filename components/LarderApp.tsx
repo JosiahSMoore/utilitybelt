@@ -546,6 +546,7 @@ export default function LarderApp({
             onAdd={saveLibraryIngredient}
             onUpdate={updateLibraryIngredient}
             onDelete={deleteLibraryIngredient}
+            onAddToShoppingList={addManualShoppingItem}
             onBack={() => setView("browse")}
           />
         )}
@@ -2730,15 +2731,18 @@ function IngredientLibraryView({
   onAdd,
   onUpdate,
   onDelete,
+  onAddToShoppingList,
   onBack,
 }: {
   library: LibraryIngredient[];
   onAdd: (input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
   onUpdate: (id: string, input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
   onDelete: (id: string) => void;
+  onAddToShoppingList: (name: string) => void;
   onBack: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [pantryOnly, setPantryOnly] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
   const [formUnit, setFormUnit] = useState("g");
@@ -2749,7 +2753,9 @@ function IngredientLibraryView({
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
-  const filtered = library.filter((i) => i.name.toLowerCase().includes(query.toLowerCase()));
+  const filtered = library.filter(
+    (i) => i.name.toLowerCase().includes(query.toLowerCase()) && (!pantryOnly || i.pantryStaple)
+  );
   const isAdding = editingId === "new";
 
   function startAdd() {
@@ -2816,6 +2822,25 @@ function IngredientLibraryView({
         />
       </div>
 
+      <div className="flex gap-1.5 mb-5">
+        <button
+          onClick={() => setPantryOnly(false)}
+          className={`px-3 py-1.5 rounded-full text-xs font-medium border ${
+            !pantryOnly ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+          }`}
+        >
+          All ingredients
+        </button>
+        <button
+          onClick={() => setPantryOnly(true)}
+          className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border ${
+            pantryOnly ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+          }`}
+        >
+          <Package size={11} /> Pantry staples
+        </button>
+      </div>
+
       {isAdding && (
         <IngredientLibraryForm
           title="New ingredient"
@@ -2845,7 +2870,13 @@ function IngredientLibraryView({
           onAction={startAdd}
         />
       ) : filtered.length === 0 ? (
-        <p className="text-sm text-stone-500 text-center py-10">No ingredients match “{query}”.</p>
+        <p className="text-sm text-stone-500 text-center py-10">
+          {pantryOnly
+            ? query
+              ? `No pantry staples match “${query}”.`
+              : "No pantry staples marked yet. Mark ingredients as staples while editing them."
+            : `No ingredients match “${query}”.`}
+        </p>
       ) : (
         <div className="bg-amber-50 border border-stone-200 rounded-2xl divide-y divide-stone-100">
           {filtered.map((ing) =>
@@ -2890,6 +2921,13 @@ function IngredientLibraryView({
                   </p>
                 </div>
                 <div className="flex gap-1.5">
+                  <button
+                    onClick={() => onAddToShoppingList(ing.name)}
+                    title="Add to shopping list"
+                    className="w-8 h-8 flex items-center justify-center rounded-full text-emerald-700 hover:bg-emerald-50"
+                  >
+                    <Plus size={14} />
+                  </button>
                   <button
                     onClick={() => startEdit(ing)}
                     className="w-8 h-8 flex items-center justify-center rounded-full text-stone-500 hover:bg-stone-100"
