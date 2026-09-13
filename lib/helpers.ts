@@ -20,6 +20,23 @@ export function emptyIngredient(): Ingredient {
   };
 }
 
+export function emptySectionHeader(): Ingredient {
+  return {
+    id: generateId(),
+    name: "",
+    quantity: "",
+    unit: "g",
+    calories: "0",
+    protein: "0",
+    fiber: "0",
+    libraryId: null,
+    servingMode: "whole",
+    isFlex: false,
+    flexDefault: false,
+    isSectionHeader: true,
+  };
+}
+
 export function hasFlexIngredients(recipe: Recipe): boolean {
   return (recipe.ingredients || []).some((i) => i.isFlex);
 }
@@ -53,6 +70,7 @@ function sumIngredientField(
   let wholeTotal = 0;
   let perServingTotal = 0;
   (recipe.ingredients || []).forEach((i) => {
+    if (i.isSectionHeader) return;
     if (i.isFlex) {
       const isOn = activeFlexIds ? activeFlexIds.includes(i.id) : Boolean(i.flexDefault);
       if (!isOn) return;

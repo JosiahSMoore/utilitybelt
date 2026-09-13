@@ -26,6 +26,15 @@ export type Ingredient = {
   // lives on that meal_plan row's flexSelection, not here.
   isFlex?: boolean;
   flexDefault?: boolean;
+  // A labeled divider inserted into the (non-flex) ingredient list, e.g.
+  // "Sauce" vs "Stir Fry" — everything after it, up to the next header or
+  // the end of the list, reads as belonging to that section. When true,
+  // `name` holds the optional title (blank is fine — still shows a line,
+  // just no label) and every other field on this entry is unused. Purely a
+  // display grouping — it contributes nothing to macros or the shopping
+  // list, so the same ingredient name can appear in two sections without
+  // being bought twice (shopping list dedup is already by name+unit).
+  isSectionHeader?: boolean;
 };
 
 // A shared ingredient library entry. The *PerUnit fields are RATES — the

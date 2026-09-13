@@ -45,6 +45,7 @@ import {
   defaultFlexIds,
   emptyIngredient,
   emptyRecipe,
+  emptySectionHeader,
   generateId,
   getNext7Days,
   hasFlexIngredients,
@@ -308,6 +309,7 @@ export default function LarderApp({
         const servings = parseFloat(String(recipe.servings)) || 1;
         const flexIds = slotValue?.flexSelection;
         (recipe.ingredients || []).forEach((ing) => {
+          if (ing.isSectionHeader) return;
           if (!ing.name || !ing.name.trim()) return;
           const linkedLibraryEntry = ing.libraryId
             ? ingredientLibrary.find((l) => l.id === ing.libraryId)
@@ -1048,20 +1050,37 @@ function RecipeDetail({
             <h2 className="font-display text-lg text-stone-900 mb-3">Ingredients</h2>
             <table className="w-full text-sm">
               <tbody>
-                {fixedIngredients.map((ing) => (
-                  <tr key={ing.id} className="border-b border-stone-200 last:border-0">
-                    <td className="py-2 text-stone-800">
-                      {ing.name}
-                      {ing.servingMode === "perServing" && (
-                        <span className="text-[10px] text-stone-400 ml-1.5">/serving</span>
-                      )}
-                    </td>
-                    <td className="py-2 text-stone-500 text-right whitespace-nowrap">
-                      {ing.quantity} {ing.unit}
-                    </td>
-                    <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
-                  </tr>
-                ))}
+                {fixedIngredients.map((ing) =>
+                  ing.isSectionHeader ? (
+                    <tr key={ing.id}>
+                      <td colSpan={3} className="pt-4 pb-1.5 first:pt-0">
+                        {ing.name ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide whitespace-nowrap">
+                              {ing.name}
+                            </span>
+                            <div className="flex-1 border-t border-stone-200" />
+                          </div>
+                        ) : (
+                          <div className="border-t border-stone-200" />
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={ing.id} className="border-b border-stone-200 last:border-0">
+                      <td className="py-2 text-stone-800">
+                        {ing.name}
+                        {ing.servingMode === "perServing" && (
+                          <span className="text-[10px] text-stone-400 ml-1.5">/serving</span>
+                        )}
+                      </td>
+                      <td className="py-2 text-stone-500 text-right whitespace-nowrap">
+                        {ing.quantity} {ing.unit}
+                      </td>
+                      <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
+                    </tr>
+                  )
+                )}
               </tbody>
             </table>
 
@@ -1148,13 +1167,19 @@ function RecipeForm({
     }));
   }
 
+  function addSectionHeader() {
+    setRecipe((r) => ({ ...r, ingredients: [...r.ingredients, emptySectionHeader()] }));
+  }
+
   function removeIngredientRow(id: string) {
     setRecipe((r) => ({ ...r, ingredients: r.ingredients.filter((ing) => ing.id !== id) }));
   }
 
   function handleSave() {
     if (!recipe.name.trim()) return;
-    const cleanedIngredients = recipe.ingredients.filter((i) => i.name.trim());
+    // Section headers are kept regardless of title (blank is a valid,
+    // untitled divider) — only blank-named real ingredient rows get dropped.
+    const cleanedIngredients = recipe.ingredients.filter((i) => i.isSectionHeader || i.name.trim());
     const cleanedFixed = cleanedIngredients.filter((i) => !i.isFlex);
     const cleanedFlex = cleanedIngredients.filter((i) => i.isFlex);
     const finalFixed = cleanedFixed.length === 0 ? [emptyIngredient()] : cleanedFixed;
@@ -1163,6 +1188,7 @@ function RecipeForm({
 
   const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
   const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
+  const realFixedCount = fixedIngredients.filter((i) => !i.isSectionHeader).length;
 
   const { perServing } = recipeCalories(recipe);
   const { perServing: proteinPerServing } = recipeProtein(recipe);
@@ -1240,24 +1266,40 @@ function RecipeForm({
             </span>
             <span className="col-span-1"></span>
           </div>
-          {fixedIngredients.map((ing) => (
-            <IngredientRow
-              key={ing.id}
-              ingredient={ing}
-              library={ingredientLibrary}
-              onChange={(field, value) => updateIngredient(ing.id, field, value)}
-              onRemove={() => removeIngredientRow(ing.id)}
-              disableRemove={fixedIngredients.length === 1}
-              onSaveNewLibraryIngredient={onSaveLibraryIngredient}
-            />
-          ))}
+          {fixedIngredients.map((ing) =>
+            ing.isSectionHeader ? (
+              <SectionHeaderEditRow
+                key={ing.id}
+                title={ing.name}
+                onChangeTitle={(title) => updateIngredient(ing.id, "name", title)}
+                onRemove={() => removeIngredientRow(ing.id)}
+              />
+            ) : (
+              <IngredientRow
+                key={ing.id}
+                ingredient={ing}
+                library={ingredientLibrary}
+                onChange={(field, value) => updateIngredient(ing.id, field, value)}
+                onRemove={() => removeIngredientRow(ing.id)}
+                disableRemove={realFixedCount === 1}
+                onSaveNewLibraryIngredient={onSaveLibraryIngredient}
+              />
+            )
+          )}
         </div>
 
-        <button onClick={addIngredientRow} className="flex items-center gap-1.5 py-2 sm:py-0 text-base sm:text-sm text-emerald-800 font-medium mb-6 hover:underline">
-          <Plus size={16} className="sm:hidden" />
-          <Plus size={14} className="hidden sm:block" />
-          Add ingredient
-        </button>
+        <div className="flex items-center gap-4 mb-6 flex-wrap">
+          <button onClick={addIngredientRow} className="flex items-center gap-1.5 py-2 sm:py-0 text-base sm:text-sm text-emerald-800 font-medium hover:underline">
+            <Plus size={16} className="sm:hidden" />
+            <Plus size={14} className="hidden sm:block" />
+            Add ingredient
+          </button>
+          <button onClick={addSectionHeader} className="flex items-center gap-1.5 py-2 sm:py-0 text-base sm:text-sm text-stone-500 font-medium hover:underline">
+            <Plus size={16} className="sm:hidden" />
+            <Plus size={14} className="hidden sm:block" />
+            Add section
+          </button>
+        </div>
 
         {flexIngredients.length > 0 ? (
           <>
@@ -1341,6 +1383,36 @@ function RecipeForm({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SectionHeaderEditRow({
+  title,
+  onChangeTitle,
+  onRemove,
+}: {
+  title: string;
+  onChangeTitle: (title: string) => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-2 pt-2">
+      <div className="flex-1 border-t border-stone-300" />
+      <input
+        value={title}
+        onChange={(e) => onChangeTitle(e.target.value)}
+        placeholder="Section title (optional)"
+        className="px-2 py-1.5 text-sm sm:text-xs font-medium text-stone-500 uppercase tracking-wide bg-transparent text-center focus:outline-none focus:ring-2 focus:ring-emerald-700 rounded"
+      />
+      <div className="flex-1 border-t border-stone-300" />
+      <button
+        type="button"
+        onClick={onRemove}
+        className="flex-shrink-0 h-9 w-9 flex items-center justify-center text-stone-400 hover:text-orange-700"
+      >
+        <X size={15} />
+      </button>
     </div>
   );
 }
