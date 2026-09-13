@@ -20,6 +20,8 @@ import {
   Dumbbell,
   Wheat,
   Package,
+  SlidersHorizontal,
+  Star,
 } from "lucide-react";
 import {
   addDailyExtraAction,
@@ -35,14 +37,17 @@ import {
   saveRecipeAction,
   syncShoppingListAction,
   toggleShoppingItemAction,
+  updateFlexSelectionAction,
   updateLibraryIngredientAction,
 } from "@/app/actions";
 import { CATEGORIES, CATEGORY_STYLE, MEAL_SLOTS, SLOT_LABEL, UNITS } from "@/lib/constants";
 import {
+  defaultFlexIds,
   emptyIngredient,
   emptyRecipe,
   generateId,
   getNext7Days,
+  hasFlexIngredients,
   recipeCalories,
   recipeFiber,
   recipeProtein,
@@ -142,6 +147,7 @@ export default function LarderApp({
   const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [pickerSlot, setPickerSlot] = useState<{ date: string; slot: MealSlot } | null>(null);
+  const [modifySlot, setModifySlot] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [extrasDate, setExtrasDate] = useState<string | null>(null);
@@ -193,18 +199,38 @@ export default function LarderApp({
   }
 
   async function assignMeal(date: string, slot: MealSlot, recipeId: string) {
+    const recipe = recipes.find((r) => r.id === recipeId);
+    const flexSelection = recipe ? defaultFlexIds(recipe) : [];
     const prev = mealPlan;
     const next = {
       ...mealPlan,
-      [date]: { ...(mealPlan[date] || {}), [slot]: { recipeId, custom: null } },
+      [date]: { ...(mealPlan[date] || {}), [slot]: { recipeId, custom: null, flexSelection } },
     };
     setMealPlan(next);
     setPickerSlot(null);
     try {
-      await assignMealAction(date, slot, recipeId);
+      await assignMealAction(date, slot, recipeId, flexSelection);
     } catch {
       setMealPlan(prev);
       showToast("Couldn't save that meal — try again.");
+    }
+  }
+
+  async function updateFlexSelection(date: string, slot: MealSlot, flexSelection: string[]) {
+    const currentSlot = mealPlan[date]?.[slot];
+    if (!currentSlot) return;
+    const prev = mealPlan;
+    const next = {
+      ...mealPlan,
+      [date]: { ...(mealPlan[date] || {}), [slot]: { ...currentSlot, flexSelection } },
+    };
+    setMealPlan(next);
+    setModifySlot(null);
+    try {
+      await updateFlexSelectionAction(date, slot, flexSelection);
+    } catch {
+      setMealPlan(prev);
+      showToast("Couldn't update that meal — try again.");
     }
   }
 
@@ -251,10 +277,11 @@ export default function LarderApp({
         }
         const r = recipes.find((rc) => rc.id === slot?.recipeId);
         if (!r) return acc;
+        const flexIds = slot?.flexSelection;
         return {
-          calories: acc.calories + recipeCalories(r).perServing,
-          protein: acc.protein + recipeProtein(r).perServing,
-          fiber: acc.fiber + recipeFiber(r).perServing,
+          calories: acc.calories + recipeCalories(r, flexIds).perServing,
+          protein: acc.protein + recipeProtein(r, flexIds).perServing,
+          fiber: acc.fiber + recipeFiber(r, flexIds).perServing,
         };
       },
       { calories: 0, protein: 0, fiber: 0 }
@@ -275,12 +302,18 @@ export default function LarderApp({
       const slots = mealPlan[day.date];
       if (!slots) return;
       MEAL_SLOTS.forEach((mt) => {
-        const recipe = recipes.find((r) => r.id === slots[mt]?.recipeId);
+        const slotValue = slots[mt];
+        const recipe = recipes.find((r) => r.id === slotValue?.recipeId);
         if (!recipe) return;
         const servings = parseFloat(String(recipe.servings)) || 1;
+        const flexIds = slotValue?.flexSelection;
         (recipe.ingredients || []).forEach((ing) => {
           if (!ing.name || !ing.name.trim()) return;
           if (ing.pantryStaple) return;
+          if (ing.isFlex) {
+            const isOn = flexIds ? flexIds.includes(ing.id) : Boolean(ing.flexDefault);
+            if (!isOn) return;
+          }
           const key = ing.name.trim().toLowerCase() + "|" + (ing.unit || "");
           const enteredQty = parseFloat(ing.quantity) || 0;
           // "Whole recipe" quantities are already the total to buy. "Per
@@ -521,6 +554,7 @@ export default function LarderApp({
             setActiveDayIdx={setActiveDayIdx}
             openPicker={(date, slot) => setPickerSlot({ date, slot })}
             openExtras={(date) => setExtrasDate(date)}
+            openModify={(date, slot) => setModifySlot({ date, slot })}
             onBuildList={buildShoppingList}
           />
         )}
@@ -563,6 +597,27 @@ export default function LarderApp({
           onClose={() => setExtrasDate(null)}
         />
       )}
+
+      {modifySlot &&
+        (() => {
+          const slotValue = mealPlan[modifySlot.date]?.[modifySlot.slot];
+          const recipe = slotValue?.recipeId
+            ? recipes.find((r) => r.id === slotValue.recipeId)
+            : null;
+          if (!recipe) {
+            setModifySlot(null);
+            return null;
+          }
+          return (
+            <FlexModifyModal
+              recipeName={recipe.name}
+              flexIngredients={recipe.ingredients.filter((i) => i.isFlex)}
+              selected={slotValue?.flexSelection ?? defaultFlexIds(recipe)}
+              onSave={(ids) => updateFlexSelection(modifySlot.date, modifySlot.slot, ids)}
+              onClose={() => setModifySlot(null)}
+            />
+          );
+        })()}
 
       {confirmDeleteId && (
         <ConfirmModal
@@ -943,6 +998,8 @@ function RecipeDetail({
   onPrint: () => void;
 }) {
   const { total, perServing } = recipeCalories(recipe);
+  const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
+  const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
@@ -988,7 +1045,7 @@ function RecipeDetail({
             <h2 className="font-display text-lg text-stone-900 mb-3">Ingredients</h2>
             <table className="w-full text-sm">
               <tbody>
-                {recipe.ingredients.map((ing) => (
+                {fixedIngredients.map((ing) => (
                   <tr key={ing.id} className="border-b border-stone-200 last:border-0">
                     <td className="py-2 text-stone-800">
                       {ing.name}
@@ -1004,6 +1061,38 @@ function RecipeDetail({
                 ))}
               </tbody>
             </table>
+
+            {flexIngredients.length > 0 && (
+              <div className="mt-5 pt-4 border-t border-dashed border-stone-300">
+                <h3 className="flex items-center gap-1.5 text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
+                  <SlidersHorizontal size={12} /> Flexible ingredients
+                </h3>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {flexIngredients.map((ing) => (
+                      <tr key={ing.id} className="border-b border-stone-200 last:border-0">
+                        <td className="py-2 text-stone-800">
+                          <span className="flex items-center gap-1.5">
+                            {ing.name}
+                            {ing.flexDefault && (
+                              <Star size={11} className="text-amber-500 fill-amber-500" />
+                            )}
+                          </span>
+                        </td>
+                        <td className="py-2 text-stone-500 text-right whitespace-nowrap">
+                          {ing.quantity} {ing.unit}
+                        </td>
+                        <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-stone-400 mt-2 flex items-center gap-1">
+                  <Star size={10} className="text-amber-500 fill-amber-500" /> = included by default when
+                  scheduled
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <h2 className="font-display text-lg text-stone-900 mb-3">Instructions</h2>
@@ -1049,19 +1138,28 @@ function RecipeForm({
     setRecipe((r) => ({ ...r, ingredients: [...r.ingredients, emptyIngredient()] }));
   }
 
+  function addFlexIngredientRow() {
+    setRecipe((r) => ({
+      ...r,
+      ingredients: [...r.ingredients, { ...emptyIngredient(), isFlex: true, flexDefault: false }],
+    }));
+  }
+
   function removeIngredientRow(id: string) {
     setRecipe((r) => ({ ...r, ingredients: r.ingredients.filter((ing) => ing.id !== id) }));
   }
 
   function handleSave() {
     if (!recipe.name.trim()) return;
-    const cleaned = {
-      ...recipe,
-      ingredients: recipe.ingredients.filter((i) => i.name.trim()),
-    };
-    if (cleaned.ingredients.length === 0) cleaned.ingredients = [emptyIngredient()];
-    onSave(cleaned);
+    const cleanedIngredients = recipe.ingredients.filter((i) => i.name.trim());
+    const cleanedFixed = cleanedIngredients.filter((i) => !i.isFlex);
+    const cleanedFlex = cleanedIngredients.filter((i) => i.isFlex);
+    const finalFixed = cleanedFixed.length === 0 ? [emptyIngredient()] : cleanedFixed;
+    onSave({ ...recipe, ingredients: [...finalFixed, ...cleanedFlex] });
   }
+
+  const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
+  const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
 
   const { perServing } = recipeCalories(recipe);
   const { perServing: proteinPerServing } = recipeProtein(recipe);
@@ -1149,14 +1247,14 @@ function RecipeForm({
             </span>
             <span className="col-span-1"></span>
           </div>
-          {recipe.ingredients.map((ing) => (
+          {fixedIngredients.map((ing) => (
             <IngredientRow
               key={ing.id}
               ingredient={ing}
               library={ingredientLibrary}
               onChange={(field, value) => updateIngredient(ing.id, field, value)}
               onRemove={() => removeIngredientRow(ing.id)}
-              disableRemove={recipe.ingredients.length === 1}
+              disableRemove={fixedIngredients.length === 1}
               onSaveNewLibraryIngredient={onSaveLibraryIngredient}
             />
           ))}
@@ -1165,6 +1263,70 @@ function RecipeForm({
         <button onClick={addIngredientRow} className="flex items-center gap-1 text-sm text-emerald-800 font-medium mb-6 hover:underline">
           <Plus size={14} /> Add ingredient
         </button>
+
+        {flexIngredients.length > 0 ? (
+          <>
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">
+                Flexible ingredients
+              </label>
+              <span className="text-[11px] text-stone-400">
+                Swappable options — check "Default" for what's used unless you modify it
+              </span>
+            </div>
+            <div className="space-y-2 mb-3">
+              <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
+                <span className="col-span-3">Ingredient</span>
+                <span className="col-span-1">Qty</span>
+                <span className="col-span-1">Unit</span>
+                <span className="col-span-1 text-center" title="Calories">
+                  <Flame size={11} className="inline" />
+                </span>
+                <span className="col-span-1 text-center" title="Protein (g)">
+                  <Dumbbell size={11} className="inline" />
+                </span>
+                <span className="col-span-1 text-center" title="Fiber (g)">
+                  <Wheat size={11} className="inline" />
+                </span>
+                <span className="col-span-1 text-center" title="Pantry staple (skip in shopping list)">
+                  <Package size={11} className="inline" />
+                </span>
+                <span className="col-span-1 text-center" title="Included by default when scheduled">
+                  <Star size={11} className="inline" />
+                </span>
+                <span className="col-span-1 text-center" title="Whole recipe vs. per serving">
+                  Per svg
+                </span>
+                <span className="col-span-1"></span>
+              </div>
+              {flexIngredients.map((ing) => (
+                <IngredientRow
+                  key={ing.id}
+                  ingredient={ing}
+                  library={ingredientLibrary}
+                  onChange={(field, value) => updateIngredient(ing.id, field, value)}
+                  onRemove={() => removeIngredientRow(ing.id)}
+                  disableRemove={false}
+                  onSaveNewLibraryIngredient={onSaveLibraryIngredient}
+                  isFlexRow
+                />
+              ))}
+            </div>
+            <button
+              onClick={addFlexIngredientRow}
+              className="flex items-center gap-1 text-sm text-emerald-800 font-medium mb-6 hover:underline"
+            >
+              <Plus size={14} /> Add flexible ingredient
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={addFlexIngredientRow}
+            className="flex items-center gap-1.5 text-sm text-stone-500 font-medium mb-6 border border-dashed border-stone-300 rounded-full px-3.5 py-1.5 hover:border-stone-400 hover:text-stone-700"
+          >
+            <Plus size={14} /> Add flexible ingredients
+          </button>
+        )}
 
         <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Instructions</label>
         <textarea
@@ -1199,6 +1361,7 @@ function IngredientRow({
   onRemove,
   disableRemove,
   onSaveNewLibraryIngredient,
+  isFlexRow,
 }: {
   ingredient: Ingredient;
   library: LibraryIngredient[];
@@ -1206,6 +1369,7 @@ function IngredientRow({
   onRemove: () => void;
   disableRemove: boolean;
   onSaveNewLibraryIngredient: (input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
+  isFlexRow?: boolean;
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
@@ -1292,7 +1456,7 @@ function IngredientRow({
 
   return (
     <div className="grid grid-cols-12 gap-2 items-start">
-      <div className="col-span-4 relative">
+      <div className={`${isFlexRow ? "col-span-3" : "col-span-4"} relative`}>
         <input
           value={ingredient.name}
           onChange={(e) => {
@@ -1393,6 +1557,23 @@ function IngredientRow({
           {ingredient.pantryStaple && <Check size={10} className="text-amber-50" />}
         </span>
       </button>
+      {isFlexRow && (
+        <button
+          type="button"
+          onClick={() => onChange("flexDefault", !ingredient.flexDefault)}
+          title={
+            ingredient.flexDefault
+              ? "Included by default when scheduled (click to change)"
+              : "Include by default when scheduled"
+          }
+          className="col-span-1 h-9 flex items-center justify-center"
+        >
+          <Star
+            size={15}
+            className={ingredient.flexDefault ? "text-amber-500 fill-amber-500" : "text-stone-300"}
+          />
+        </button>
+      )}
       <button
         type="button"
         role="switch"
@@ -1505,6 +1686,7 @@ function MealPlanView({
   setActiveDayIdx,
   openPicker,
   openExtras,
+  openModify,
   onBuildList,
 }: {
   days: ReturnType<typeof getNext7Days>;
@@ -1516,6 +1698,7 @@ function MealPlanView({
   setActiveDayIdx: (i: number) => void;
   openPicker: (date: string, slot: MealSlot) => void;
   openExtras: (date: string) => void;
+  openModify: (date: string, slot: MealSlot) => void;
   onBuildList: () => void;
 }) {
   const activeDay = days[activeDayIdx];
@@ -1565,19 +1748,34 @@ function MealPlanView({
           <div key={slot} className="grid grid-cols-8 border-b border-stone-100 last:border-0">
             <div className="p-3 text-xs font-medium text-stone-500 flex items-center">{SLOT_LABEL[slot]}</div>
             {days.map((d) => {
-              const name = slotDisplayName((mealPlan[d.date] || {})[slot], recipes);
+              const slotValue = (mealPlan[d.date] || {})[slot];
+              const name = slotDisplayName(slotValue, recipes);
+              const assignedRecipe = slotValue?.recipeId
+                ? recipes.find((r) => r.id === slotValue.recipeId)
+                : null;
+              const canModify = Boolean(assignedRecipe && hasFlexIngredients(assignedRecipe));
               return (
-                <button
-                  key={d.date}
-                  onClick={() => openPicker(d.date, slot)}
-                  className={`m-1.5 p-2 rounded-lg text-xs text-left border transition-colors ${
-                    name
-                      ? "bg-emerald-800 text-amber-50 border-emerald-800"
-                      : "border-dashed border-stone-300 text-stone-400 hover:border-stone-400"
-                  }`}
-                >
-                  {name || "+ Add"}
-                </button>
+                <div key={d.date} className="m-1.5 flex gap-1">
+                  <button
+                    onClick={() => openPicker(d.date, slot)}
+                    className={`flex-1 min-w-0 p-2 rounded-lg text-xs text-left border transition-colors ${
+                      name
+                        ? "bg-emerald-800 text-amber-50 border-emerald-800"
+                        : "border-dashed border-stone-300 text-stone-400 hover:border-stone-400"
+                    }`}
+                  >
+                    {name || "+ Add"}
+                  </button>
+                  {canModify && (
+                    <button
+                      onClick={() => openModify(d.date, slot)}
+                      title="Modify flexible ingredients"
+                      className="flex-shrink-0 w-6 rounded-lg border border-emerald-800 text-emerald-800 flex items-center justify-center hover:bg-emerald-50"
+                    >
+                      <SlidersHorizontal size={11} />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -1626,21 +1824,37 @@ function MealPlanView({
 
         <div className="space-y-2">
           {MEAL_SLOTS.map((slot) => {
-            const name = slotDisplayName((mealPlan[activeDay.date] || {})[slot], recipes);
+            const slotValue = (mealPlan[activeDay.date] || {})[slot];
+            const name = slotDisplayName(slotValue, recipes);
+            const assignedRecipe = slotValue?.recipeId
+              ? recipes.find((r) => r.id === slotValue.recipeId)
+              : null;
+            const canModify = Boolean(assignedRecipe && hasFlexIngredients(assignedRecipe));
             return (
-              <button
+              <div
                 key={slot}
-                onClick={() => openPicker(activeDay.date, slot)}
-                className="w-full flex items-center justify-between bg-amber-50 border border-stone-200 rounded-xl px-4 py-3 text-left"
+                className="w-full flex items-center gap-2 bg-amber-50 border border-stone-200 rounded-xl px-4 py-3"
               >
-                <div>
+                <button
+                  onClick={() => openPicker(activeDay.date, slot)}
+                  className="flex-1 min-w-0 text-left"
+                >
                   <p className="text-[11px] uppercase tracking-wide text-stone-400">{SLOT_LABEL[slot]}</p>
-                  <p className={`text-sm font-medium mt-0.5 ${name ? "text-stone-900" : "text-stone-400"}`}>
+                  <p className={`text-sm font-medium mt-0.5 truncate ${name ? "text-stone-900" : "text-stone-400"}`}>
                     {name || "Tap to add"}
                   </p>
-                </div>
-                <ChevronRight size={16} className="text-stone-400" />
-              </button>
+                </button>
+                {canModify && (
+                  <button
+                    onClick={() => openModify(activeDay.date, slot)}
+                    title="Modify flexible ingredients"
+                    className="flex-shrink-0 w-8 h-8 rounded-full border border-emerald-800 text-emerald-800 flex items-center justify-center hover:bg-emerald-50"
+                  >
+                    <SlidersHorizontal size={14} />
+                  </button>
+                )}
+                <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />
+              </div>
             );
           })}
 
@@ -2036,6 +2250,98 @@ function ExtrasModal({
             className="w-full px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
           >
             Add
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FlexModifyModal({
+  recipeName,
+  flexIngredients,
+  selected,
+  onSave,
+  onClose,
+}: {
+  recipeName: string;
+  flexIngredients: Ingredient[];
+  selected: string[];
+  onSave: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set(selected));
+
+  function toggle(id: string) {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-amber-50 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-200">
+          <div>
+            <h2 className="font-display text-lg text-stone-900">Modify ingredients</h2>
+            <p className="text-xs text-stone-400">{recipeName}</p>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1.5">
+          {flexIngredients.length === 0 ? (
+            <p className="text-sm text-stone-500 text-center py-6">
+              This recipe has no flexible ingredients.
+            </p>
+          ) : (
+            flexIngredients.map((ing) => {
+              const checked = checkedIds.has(ing.id);
+              return (
+                <button
+                  key={ing.id}
+                  type="button"
+                  onClick={() => toggle(ing.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left border ${
+                    checked ? "border-emerald-700 bg-emerald-50" : "border-stone-200 hover:bg-stone-50"
+                  }`}
+                >
+                  <span
+                    className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                      checked ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
+                    }`}
+                  >
+                    {checked && <Check size={12} className="text-amber-50" />}
+                  </span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-stone-800 flex items-center gap-1.5">
+                      {ing.name}
+                      {ing.flexDefault && <Star size={11} className="text-amber-500 fill-amber-500" />}
+                    </p>
+                    <p className="text-xs text-stone-400">
+                      {ing.quantity} {ing.unit} · {ing.calories || 0} cal
+                    </p>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+
+        <div className="p-4 border-t border-stone-200 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
+            Cancel
+          </button>
+          <button
+            onClick={() => onSave(Array.from(checkedIds))}
+            className="px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50"
+          >
+            Save
           </button>
         </div>
       </div>

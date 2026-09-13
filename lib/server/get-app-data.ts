@@ -43,6 +43,7 @@ export async function getAppData() {
     initialMealPlan[row.date][row.slot as keyof MealPlan[string]] = {
       recipeId: row.recipe_id,
       custom: row.custom_meal ?? null,
+      flexSelection: row.flex_selection ?? null,
     };
   });
 

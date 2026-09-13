@@ -72,6 +72,14 @@ create unique index if not exists ingredients_name_lower_idx on ingredients (low
 -- intentionally NOT saved to the recipes table; they only ever live here.
 alter table meal_plan add column if not exists custom_meal jsonb;
 
+-- When recipe_id points to a recipe with flexible ingredients (swappable
+-- options like "pick your vegetables" in a curry), this holds the ids of
+-- the ingredient lines that are toggled ON for THIS specific occurrence —
+-- independent of any other date/slot using the same recipe. Null means
+-- "use the recipe's own defaults" (recipes without flex ingredients, or
+-- rows saved before this feature existed).
+alter table meal_plan add column if not exists flex_selection jsonb;
+
 -- Extra items eaten on a given day outside any planned meal slot. Simpler
 -- than a recipe ingredient on purpose — just a label and a calorie count,
 -- no protein/fiber tracking, no link back to the ingredient library (the

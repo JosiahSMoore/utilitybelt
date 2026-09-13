@@ -23,6 +23,13 @@ export type Ingredient = {
   // building the shopping list from the meal plan. Defaults from the
   // library ingredient when picked, but overridable per recipe.
   pantryStaple?: boolean;
+  // Flexible ingredients are swappable options (e.g. "pick your vegetables"
+  // in a curry) grouped separately from the recipe's fixed ingredients.
+  // `flexDefault` is whether it's ON by default when the recipe is newly
+  // scheduled — the actual on/off state for a specific scheduled occurrence
+  // lives on that meal_plan row's flexSelection, not here.
+  isFlex?: boolean;
+  flexDefault?: boolean;
 };
 
 // A shared ingredient library entry. The *PerUnit fields are RATES — the
@@ -60,6 +67,10 @@ export type CustomMeal = {
 export type MealSlotValue = {
   recipeId: string | null;
   custom: CustomMeal | null;
+  // Ids of the recipe's flex ingredients that are ON for this specific
+  // occurrence — independent of any other date/slot using the same recipe.
+  // null/absent means "use the recipe's own flexDefault flags".
+  flexSelection?: string[] | null;
 };
 
 export type DayPlan = Partial<Record<MealSlot, MealSlotValue | null>>;

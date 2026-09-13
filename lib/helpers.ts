@@ -16,7 +16,17 @@ export function emptyIngredient(): Ingredient {
     libraryId: null,
     servingMode: "whole",
     pantryStaple: false,
+    isFlex: false,
+    flexDefault: false,
   };
+}
+
+export function hasFlexIngredients(recipe: Recipe): boolean {
+  return (recipe.ingredients || []).some((i) => i.isFlex);
+}
+
+export function defaultFlexIds(recipe: Recipe): string[] {
+  return (recipe.ingredients || []).filter((i) => i.isFlex && i.flexDefault).map((i) => i.id);
 }
 
 export function emptyRecipe(): Recipe {
@@ -30,11 +40,24 @@ export function emptyRecipe(): Recipe {
   };
 }
 
-function sumIngredientField(recipe: Recipe, field: "calories" | "protein" | "fiber") {
+// `activeFlexIds`, when passed, says exactly which flex ingredients count
+// (used for a specific scheduled occurrence). Omit it to fall back to the
+// recipe's own flexDefault flags (used anywhere there's no schedule context
+// — Browse cards, Recipe Detail, the recipe editor). Pass [] deliberately
+// to mean "all flex ingredients off", distinct from "no selection given".
+function sumIngredientField(
+  recipe: Recipe,
+  field: "calories" | "protein" | "fiber",
+  activeFlexIds?: string[] | null
+) {
   const servings = parseFloat(String(recipe.servings)) || 1;
   let wholeTotal = 0;
   let perServingTotal = 0;
   (recipe.ingredients || []).forEach((i) => {
+    if (i.isFlex) {
+      const isOn = activeFlexIds ? activeFlexIds.includes(i.id) : Boolean(i.flexDefault);
+      if (!isOn) return;
+    }
     const value = parseFloat(i[field]) || 0;
     if (i.servingMode === "perServing") {
       perServingTotal += value;
@@ -46,16 +69,16 @@ function sumIngredientField(recipe: Recipe, field: "calories" | "protein" | "fib
   return { total: Math.round(perServing * servings), perServing: Math.round(perServing) };
 }
 
-export function recipeCalories(recipe: Recipe) {
-  return sumIngredientField(recipe, "calories");
+export function recipeCalories(recipe: Recipe, activeFlexIds?: string[] | null) {
+  return sumIngredientField(recipe, "calories", activeFlexIds);
 }
 
-export function recipeProtein(recipe: Recipe) {
-  return sumIngredientField(recipe, "protein");
+export function recipeProtein(recipe: Recipe, activeFlexIds?: string[] | null) {
+  return sumIngredientField(recipe, "protein", activeFlexIds);
 }
 
-export function recipeFiber(recipe: Recipe) {
-  return sumIngredientField(recipe, "fiber");
+export function recipeFiber(recipe: Recipe, activeFlexIds?: string[] | null) {
+  return sumIngredientField(recipe, "fiber", activeFlexIds);
 }
 
 export type PlanDay = {

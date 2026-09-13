@@ -73,12 +73,16 @@ export async function deleteRecipeAction(id: string): Promise<void> {
 export async function assignMealAction(
   date: string,
   slot: MealSlot,
-  recipeId: string
+  recipeId: string,
+  flexSelection: string[] | null
 ): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase
     .from("meal_plan")
-    .upsert({ date, slot, recipe_id: recipeId, custom_meal: null }, { onConflict: "date,slot" });
+    .upsert(
+      { date, slot, recipe_id: recipeId, custom_meal: null, flex_selection: flexSelection },
+      { onConflict: "date,slot" }
+    );
   if (error) throw new Error(error.message);
 }
 
@@ -90,7 +94,24 @@ export async function assignCustomMealAction(
   const supabase = createAdminClient();
   const { error } = await supabase
     .from("meal_plan")
-    .upsert({ date, slot, recipe_id: null, custom_meal: custom }, { onConflict: "date,slot" });
+    .upsert(
+      { date, slot, recipe_id: null, custom_meal: custom, flex_selection: null },
+      { onConflict: "date,slot" }
+    );
+  if (error) throw new Error(error.message);
+}
+
+export async function updateFlexSelectionAction(
+  date: string,
+  slot: MealSlot,
+  flexSelection: string[]
+): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("meal_plan")
+    .update({ flex_selection: flexSelection })
+    .eq("date", date)
+    .eq("slot", slot);
   if (error) throw new Error(error.message);
 }
 
