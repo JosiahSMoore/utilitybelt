@@ -98,6 +98,56 @@ export function recipeFiber(recipe: Recipe, activeFlexIds?: string[] | null) {
   return sumIngredientField(recipe, "fiber", activeFlexIds);
 }
 
+// A single line of `Recipe.instructions`. A line may start with one or more
+// bracketed, comma-separated category tags — e.g. "[SAUCE] Whisk together…"
+// — matched case-insensitively against ingredient section titles. Tags are
+// always stripped from `text`; no tags means an empty `categories` array.
+export type InstructionStep = {
+  text: string;
+  categories: string[];
+};
+
+const STEP_TAG_RE = /^\[([^\]]+)\]\s*/;
+
+export function parseInstructionSteps(instructions: string): InstructionStep[] {
+  return (instructions || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const match = line.match(STEP_TAG_RE);
+      if (!match) return { text: line, categories: [] };
+      const categories = match[1]
+        .split(",")
+        .map((c) => c.trim().toUpperCase())
+        .filter(Boolean);
+      return { text: line.slice(match[0].length).trim(), categories };
+    });
+}
+
+// Splits a flat ingredient list into groups at each `isSectionHeader` entry,
+// the same grouping Recipe Detail's ingredient table already renders — used
+// by Cooking Mode to match a step's category tags to the section they refer
+// to. A leading run of ingredients before any header comes back as a group
+// with `title: null`; empty groups (two headers back to back) are dropped.
+export type IngredientSection = {
+  key: string;
+  title: string | null;
+  items: Ingredient[];
+};
+
+export function groupIngredientsBySection(ingredients: Ingredient[]): IngredientSection[] {
+  const groups: IngredientSection[] = [{ key: "default", title: null, items: [] }];
+  ingredients.forEach((ing) => {
+    if (ing.isSectionHeader) {
+      groups.push({ key: ing.id, title: ing.name?.trim() || null, items: [] });
+    } else {
+      groups[groups.length - 1].items.push(ing);
+    }
+  });
+  return groups.filter((g) => g.items.length > 0);
+}
+
 export type PlanDay = {
   date: string;
   weekday: string;

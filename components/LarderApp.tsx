@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   Home as HomeIcon,
@@ -22,6 +22,7 @@ import {
   Package,
   SlidersHorizontal,
   Star,
+  ChefHat,
 } from "lucide-react";
 import {
   addDailyExtraAction,
@@ -48,7 +49,9 @@ import {
   emptySectionHeader,
   generateId,
   getNext7Days,
+  groupIngredientsBySection,
   hasFlexIngredients,
+  parseInstructionSteps,
   recipeCalories,
   recipeFiber,
   recipeProtein,
@@ -84,6 +87,14 @@ type LibraryIngredientInput = {
   fiberPerUnit: number;
   pantryStaple: boolean;
 };
+
+// Keying checked-ingredient/step state by date+slot (when launched from a
+// scheduled meal) keeps each occurrence's cooking session independent, same
+// as flexSelection already is; launched from Recipe Detail with no
+// date/slot, it just keys off the recipe.
+function cookingSessionKey(recipeId: string, date?: string, slot?: MealSlot): string {
+  return `cookingMode:${recipeId}${date && slot ? `:${date}:${slot}` : ""}`;
+}
 
 function slotDisplayName(slot: MealSlotValue | null | undefined, recipes: Recipe[]): string | null {
   if (!slot) return null;
@@ -149,6 +160,15 @@ export default function LarderApp({
   const [selectedRecipeId, setSelectedRecipeId] = useState<string | null>(null);
   const [pickerSlot, setPickerSlot] = useState<{ date: string; slot: MealSlot } | null>(null);
   const [modifySlot, setModifySlot] = useState<{ date: string; slot: MealSlot } | null>(null);
+  const [slotActionTarget, setSlotActionTarget] = useState<{ date: string; slot: MealSlot } | null>(
+    null
+  );
+  const [cookingSession, setCookingSession] = useState<{
+    recipe: Recipe;
+    flexIds: string[];
+    date?: string;
+    slot?: MealSlot;
+  } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [activeDayIdx, setActiveDayIdx] = useState(0);
   const [extrasDate, setExtrasDate] = useState<string | null>(null);
@@ -544,6 +564,9 @@ export default function LarderApp({
                 }}
                 onDelete={() => setConfirmDeleteId(recipe.id)}
                 onPrint={() => showToast("4×6 label export is coming in a future version.")}
+                onStartCooking={() =>
+                  setCookingSession({ recipe, flexIds: defaultFlexIds(recipe) })
+                }
               />
             );
           })()}
@@ -559,7 +582,7 @@ export default function LarderApp({
             setActiveDayIdx={setActiveDayIdx}
             openPicker={(date, slot) => setPickerSlot({ date, slot })}
             openExtras={(date) => setExtrasDate(date)}
-            openModify={(date, slot) => setModifySlot({ date, slot })}
+            openSlotActions={(date, slot) => setSlotActionTarget({ date, slot })}
             onBuildList={buildShoppingList}
           />
         )}
@@ -623,6 +646,61 @@ export default function LarderApp({
             />
           );
         })()}
+
+      {slotActionTarget &&
+        (() => {
+          const slotValue = mealPlan[slotActionTarget.date]?.[slotActionTarget.slot];
+          if (!slotValue || (!slotValue.recipeId && !slotValue.custom)) {
+            setSlotActionTarget(null);
+            return null;
+          }
+          const recipe = slotValue.recipeId
+            ? recipes.find((r) => r.id === slotValue.recipeId) ?? null
+            : null;
+          const canModify = Boolean(recipe && hasFlexIngredients(recipe));
+          const canCook = Boolean(recipe);
+          const name = slotValue.custom ? slotValue.custom.name : recipe?.name ?? "";
+          return (
+            <MealSlotActionModal
+              name={name}
+              canModify={canModify}
+              canCook={canCook}
+              onRemove={() => {
+                clearMeal(slotActionTarget.date, slotActionTarget.slot);
+                setSlotActionTarget(null);
+              }}
+              onModify={() => {
+                setModifySlot(slotActionTarget);
+                setSlotActionTarget(null);
+              }}
+              onCook={() => {
+                if (recipe) {
+                  setCookingSession({
+                    recipe,
+                    flexIds: slotValue.flexSelection ?? defaultFlexIds(recipe),
+                    date: slotActionTarget.date,
+                    slot: slotActionTarget.slot,
+                  });
+                }
+                setSlotActionTarget(null);
+              }}
+              onClose={() => setSlotActionTarget(null)}
+            />
+          );
+        })()}
+
+      {cookingSession && (
+        <CookingModeView
+          recipe={cookingSession.recipe}
+          flexIds={cookingSession.flexIds}
+          sessionKey={cookingSessionKey(
+            cookingSession.recipe.id,
+            cookingSession.date,
+            cookingSession.slot
+          )}
+          onClose={() => setCookingSession(null)}
+        />
+      )}
 
       {confirmDeleteId && (
         <ConfirmModal
@@ -995,16 +1073,19 @@ function RecipeDetail({
   onEdit,
   onDelete,
   onPrint,
+  onStartCooking,
 }: {
   recipe: Recipe;
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
   onPrint: () => void;
+  onStartCooking: () => void;
 }) {
   const { total, perServing } = recipeCalories(recipe);
   const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
   const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
+  const steps = parseInstructionSteps(recipe.instructions);
   return (
     <div>
       <button onClick={onBack} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
@@ -1022,7 +1103,13 @@ function RecipeDetail({
               {recipe.servings} servings · {perServing} cal/serving · {total} cal total
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <button
+              onClick={onStartCooking}
+              className="flex items-center gap-1.5 bg-amber-700 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+            >
+              <ChefHat size={15} /> Start cooking
+            </button>
             <button
               onClick={onPrint}
               title="Export as 4×6 label PDF (coming soon)"
@@ -1118,9 +1205,32 @@ function RecipeDetail({
           </div>
           <div>
             <h2 className="font-display text-lg text-stone-900 mb-3">Instructions</h2>
-            <p className="text-stone-700 text-sm whitespace-pre-wrap leading-relaxed">
-              {recipe.instructions || "No instructions added."}
-            </p>
+            {steps.length === 0 ? (
+              <p className="text-stone-500 text-sm">No instructions added.</p>
+            ) : (
+              <ol className="space-y-3">
+                {steps.map((step, idx) => (
+                  <li key={idx} className="flex gap-3 text-sm">
+                    <span className="font-display text-stone-400 flex-shrink-0 w-5">{idx + 1}</span>
+                    <div>
+                      {step.categories.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {step.categories.map((c) => (
+                            <span
+                              key={c}
+                              className="text-[10px] font-medium uppercase tracking-wide bg-stone-200 text-stone-600 px-1.5 py-0.5 rounded"
+                            >
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-stone-700 leading-relaxed">{step.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
         </div>
       </div>
@@ -1369,6 +1479,11 @@ function RecipeForm({
           placeholder="Step by step…"
           className="mt-1.5 sm:mt-1 w-full px-3.5 py-3 sm:px-3 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
+        <p className="text-[11px] text-stone-400 mt-1.5">
+          One step per line. Start a line with <span className="text-stone-500">[CATEGORY]</span> to
+          tag it with an ingredient section above — used by Cooking Mode to jump to the right
+          ingredients.
+        </p>
 
         <div className="flex justify-end gap-2 mt-6">
           <button onClick={onCancel} className="px-5 py-3 sm:px-4 sm:py-2 rounded-full text-base sm:text-sm font-medium text-stone-600 hover:bg-stone-100">
@@ -1806,7 +1921,7 @@ function MealPlanView({
   setActiveDayIdx,
   openPicker,
   openExtras,
-  openModify,
+  openSlotActions,
   onBuildList,
 }: {
   days: ReturnType<typeof getNext7Days>;
@@ -1818,7 +1933,7 @@ function MealPlanView({
   setActiveDayIdx: (i: number) => void;
   openPicker: (date: string, slot: MealSlot) => void;
   openExtras: (date: string) => void;
-  openModify: (date: string, slot: MealSlot) => void;
+  openSlotActions: (date: string, slot: MealSlot) => void;
   onBuildList: () => void;
 }) {
   const activeDay = days[activeDayIdx];
@@ -1873,28 +1988,23 @@ function MealPlanView({
               const assignedRecipe = slotValue?.recipeId
                 ? recipes.find((r) => r.id === slotValue.recipeId)
                 : null;
-              const canModify = Boolean(assignedRecipe && hasFlexIngredients(assignedRecipe));
+              const isModifiable = Boolean(assignedRecipe && hasFlexIngredients(assignedRecipe));
               return (
-                <div key={d.date} className="m-1.5 flex gap-1">
+                <div key={d.date} className="m-1.5">
                   <button
-                    onClick={() => openPicker(d.date, slot)}
-                    className={`flex-1 min-w-0 p-2 rounded-lg text-xs text-left border transition-colors ${
+                    onClick={() =>
+                      name ? openSlotActions(d.date, slot) : openPicker(d.date, slot)
+                    }
+                    className={`w-full min-w-0 p-2 rounded-lg text-xs text-left border transition-colors ${
                       name
-                        ? "bg-emerald-800 text-amber-50 border-emerald-800"
+                        ? isModifiable
+                          ? "bg-amber-700 text-amber-50 border-amber-700"
+                          : "bg-emerald-800 text-amber-50 border-emerald-800"
                         : "border-dashed border-stone-300 text-stone-400 hover:border-stone-400"
                     }`}
                   >
                     {name || "+ Add"}
                   </button>
-                  {canModify && (
-                    <button
-                      onClick={() => openModify(d.date, slot)}
-                      title="Modify flexible ingredients"
-                      className="flex-shrink-0 w-6 rounded-lg border border-emerald-800 text-emerald-800 flex items-center justify-center hover:bg-emerald-50"
-                    >
-                      <SlidersHorizontal size={11} />
-                    </button>
-                  )}
                 </div>
               );
             })}
@@ -1949,32 +2059,28 @@ function MealPlanView({
             const assignedRecipe = slotValue?.recipeId
               ? recipes.find((r) => r.id === slotValue.recipeId)
               : null;
-            const canModify = Boolean(assignedRecipe && hasFlexIngredients(assignedRecipe));
+            const isModifiable = Boolean(assignedRecipe && hasFlexIngredients(assignedRecipe));
             return (
-              <div
+              <button
                 key={slot}
-                className="w-full flex items-center gap-2 bg-amber-50 border border-stone-200 rounded-xl px-4 py-3"
+                onClick={() =>
+                  name ? openSlotActions(activeDay.date, slot) : openPicker(activeDay.date, slot)
+                }
+                className="w-full flex items-center gap-2 bg-amber-50 border border-stone-200 rounded-xl px-4 py-3 text-left"
               >
-                <button
-                  onClick={() => openPicker(activeDay.date, slot)}
-                  className="flex-1 min-w-0 text-left"
-                >
+                <div className="flex-1 min-w-0">
                   <p className="text-[11px] uppercase tracking-wide text-stone-400">{SLOT_LABEL[slot]}</p>
-                  <p className={`text-sm font-medium mt-0.5 truncate ${name ? "text-stone-900" : "text-stone-400"}`}>
-                    {name || "Tap to add"}
-                  </p>
-                </button>
-                {canModify && (
-                  <button
-                    onClick={() => openModify(activeDay.date, slot)}
-                    title="Modify flexible ingredients"
-                    className="flex-shrink-0 w-8 h-8 rounded-full border border-emerald-800 text-emerald-800 flex items-center justify-center hover:bg-emerald-50"
+                  <p
+                    className={`text-sm font-medium mt-0.5 truncate flex items-center gap-1.5 ${
+                      name ? "text-stone-900" : "text-stone-400"
+                    }`}
                   >
-                    <SlidersHorizontal size={14} />
-                  </button>
-                )}
+                    {name || "Tap to add"}
+                    {isModifiable && <span className="w-1.5 h-1.5 rounded-full bg-amber-700 flex-shrink-0" />}
+                  </p>
+                </div>
                 <ChevronRight size={16} className="text-stone-400 flex-shrink-0" />
-              </div>
+              </button>
             );
           })}
 
@@ -2872,10 +2978,12 @@ function IngredientLibraryForm({
 
 function ConfirmModal({
   message,
+  confirmLabel = "Delete",
   onCancel,
   onConfirm,
 }: {
   message: string;
+  confirmLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -2888,10 +2996,326 @@ function ConfirmModal({
             Cancel
           </button>
           <button onClick={onConfirm} className="px-4 py-2 rounded-full text-sm font-medium bg-orange-700 text-amber-50">
-            Delete
+            {confirmLabel}
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ---------- Meal slot action dialog ---------- */
+
+function MealSlotActionModal({
+  name,
+  canModify,
+  canCook,
+  onRemove,
+  onModify,
+  onCook,
+  onClose,
+}: {
+  name: string;
+  canModify: boolean;
+  canCook: boolean;
+  onRemove: () => void;
+  onModify: () => void;
+  onCook: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 bg-stone-900/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-amber-50 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm flex flex-col">
+        <div className="flex items-center justify-between p-4 border-b border-stone-200">
+          <h2 className="font-display text-lg text-stone-900 truncate pr-2">{name}</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 flex-shrink-0">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-4 space-y-2">
+          <button
+            onClick={onCook}
+            disabled={!canCook}
+            title={canCook ? undefined : "Custom meals have no recipe to cook from"}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium bg-amber-700 text-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChefHat size={16} /> Cook meal
+          </button>
+          <button
+            onClick={onModify}
+            disabled={!canModify}
+            title={canModify ? undefined : "This meal has no flexible ingredients"}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border border-stone-200 text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+          >
+            <SlidersHorizontal size={16} /> Modify ingredients
+          </button>
+          <button
+            onClick={onRemove}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border border-orange-200 text-orange-700 hover:bg-orange-50"
+          >
+            <Trash2 size={16} /> Remove meal
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Cooking Mode ---------- */
+
+function loadCookingState(key: string): { checked: string[]; step: number | null } {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return { checked: [], step: null };
+    const parsed = JSON.parse(raw);
+    return {
+      checked: Array.isArray(parsed.checked) ? parsed.checked : [],
+      step: typeof parsed.step === "number" ? parsed.step : null,
+    };
+  } catch {
+    return { checked: [], step: null };
+  }
+}
+
+function saveCookingState(key: string, state: { checked: string[]; step: number | null }) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify(state));
+  } catch {
+    // sessionStorage unavailable (private mode, etc.) — cooking still works,
+    // it just won't survive an accidental reload.
+  }
+}
+
+function CookingModeView({
+  recipe,
+  flexIds,
+  sessionKey,
+  onClose,
+}: {
+  recipe: Recipe;
+  flexIds: string[];
+  sessionKey: string;
+  onClose: () => void;
+}) {
+  const steps = useMemo(() => parseInstructionSteps(recipe.instructions), [recipe.instructions]);
+  const sections = useMemo(() => {
+    const groups = groupIngredientsBySection(recipe.ingredients.filter((i) => !i.isFlex));
+    const activeFlex = recipe.ingredients.filter((i) => i.isFlex && flexIds.includes(i.id));
+    if (activeFlex.length > 0) {
+      groups.push({ key: "__flex", title: "Flexible ingredients", items: activeFlex });
+    }
+    return groups;
+  }, [recipe.ingredients, flexIds]);
+
+  const initial = useMemo(() => loadCookingState(sessionKey), [sessionKey]);
+  const [checked, setChecked] = useState<Set<string>>(() => new Set(initial.checked));
+  const [activeStep, setActiveStep] = useState<number | null>(initial.step);
+  const [confirmingExit, setConfirmingExit] = useState(false);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    saveCookingState(sessionKey, { checked: Array.from(checked), step: activeStep });
+  }, [checked, activeStep, sessionKey]);
+
+  useEffect(() => {
+    if (activeStep === null) return;
+    const step = steps[activeStep];
+    if (!step || step.categories.length === 0) return;
+    const match = sections.find((s) => s.title && step.categories.includes(s.title.toUpperCase()));
+    if (match) {
+      sectionRefs.current[match.key]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [activeStep, steps, sections]);
+
+  function toggleChecked(id: string) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function confirmExit() {
+    try {
+      sessionStorage.removeItem(sessionKey);
+    } catch {
+      // ignore
+    }
+    onClose();
+  }
+
+  const activeCategories = activeStep !== null ? steps[activeStep]?.categories ?? [] : [];
+
+  return (
+    <div className="fixed inset-0 bg-stone-100 z-50 flex flex-col overscroll-none">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+        <div className="md:w-1/3 md:border-r border-b md:border-b-0 border-stone-200 overflow-y-auto p-4 space-y-4">
+          {sections.map((section) => {
+            const isActiveMatch =
+              activeCategories.length > 0 &&
+              section.title !== null &&
+              activeCategories.includes(section.title.toUpperCase());
+            return (
+              <div
+                key={section.key}
+                ref={(el) => {
+                  sectionRefs.current[section.key] = el;
+                }}
+                className={`rounded-xl transition-shadow ${isActiveMatch ? "ring-2 ring-amber-400" : ""}`}
+              >
+                {section.title && (
+                  <p className="text-[11px] font-medium text-stone-500 uppercase tracking-wide mb-1.5 px-1">
+                    {section.title}
+                  </p>
+                )}
+                <div className="space-y-1.5">
+                  {section.items.map((ing) => {
+                    const isChecked = checked.has(ing.id);
+                    return (
+                      <button
+                        key={ing.id}
+                        onClick={() => toggleChecked(ing.id)}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left border ${
+                          isChecked ? "border-stone-200 bg-stone-100" : "border-stone-200 bg-white hover:bg-stone-50"
+                        }`}
+                      >
+                        <span
+                          className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                            isChecked ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
+                          }`}
+                        >
+                          {isChecked && <Check size={12} className="text-amber-50" />}
+                        </span>
+                        <span
+                          className={`flex-1 text-sm ${isChecked ? "line-through text-stone-400" : "text-stone-800"}`}
+                        >
+                          {ing.name} — {ing.quantity} {ing.unit}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 md:p-6">
+          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+            <div className="flex flex-wrap gap-1.5">
+              {steps.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setActiveStep(null)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+                      activeStep === null ? "bg-emerald-800 text-amber-50" : "bg-stone-200 text-stone-600 hover:bg-stone-300"
+                    }`}
+                  >
+                    All steps
+                  </button>
+                  {steps.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveStep(idx)}
+                      className={`w-8 h-8 rounded-full text-xs font-medium ${
+                        activeStep === idx ? "bg-emerald-800 text-amber-50" : "bg-stone-200 text-stone-600 hover:bg-stone-300"
+                      }`}
+                    >
+                      {idx + 1}
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+            <button
+              onClick={() => setConfirmingExit(true)}
+              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full border border-stone-200 bg-amber-50 text-stone-500 hover:bg-stone-100"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {steps.length === 0 ? (
+            <p className="text-sm text-stone-500">No instructions added.</p>
+          ) : (
+            <>
+              {activeStep === null ? (
+                <ol className="space-y-4">
+                  {steps.map((step, idx) => (
+                    <li key={idx} className="flex gap-3">
+                      <span className="font-display text-lg text-stone-400 flex-shrink-0 w-6">{idx + 1}</span>
+                      <div>
+                        {step.categories.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-1">
+                            {step.categories.map((c) => (
+                              <span
+                                key={c}
+                                className="text-[10px] font-medium uppercase tracking-wide bg-stone-200 text-stone-600 px-1.5 py-0.5 rounded"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-stone-800 leading-relaxed">{step.text}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <div>
+                  {steps[activeStep].categories.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {steps[activeStep].categories.map((c) => (
+                        <span
+                          key={c}
+                          className="text-[11px] font-medium uppercase tracking-wide bg-stone-200 text-stone-600 px-2 py-1 rounded"
+                        >
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <p className="font-serif text-2xl md:text-3xl text-stone-900 leading-snug">
+                    {steps[activeStep].text}
+                  </p>
+                  <div className="flex items-center justify-between mt-8">
+                    <button
+                      onClick={() => setActiveStep((s) => (s !== null && s > 0 ? s - 1 : s))}
+                      disabled={activeStep === 0}
+                      className="px-4 py-2 rounded-full text-sm font-medium border border-stone-200 text-stone-600 disabled:opacity-30"
+                    >
+                      ← Previous
+                    </button>
+                    <span className="text-xs text-stone-400">
+                      Step {activeStep + 1} of {steps.length}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setActiveStep((s) => (s !== null && s < steps.length - 1 ? s + 1 : s))
+                      }
+                      disabled={activeStep === steps.length - 1}
+                      className="px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-30"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {confirmingExit && (
+        <ConfirmModal
+          message="Exit cooking mode? Your checklist progress will be cleared."
+          confirmLabel="Exit"
+          onCancel={() => setConfirmingExit(false)}
+          onConfirm={confirmExit}
+        />
+      )}
     </div>
   );
 }
