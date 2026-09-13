@@ -102,7 +102,7 @@ function NutritionChips({ nutrition, size = "sm" }: { nutrition: DayNutrition; s
       <span className="flex items-center gap-1 text-emerald-800">
         <Dumbbell size={iconSize} /> {nutrition.protein}g
       </span>
-      <span className="flex items-center gap-1 text-amber-800">
+      <span className="flex items-center gap-1 text-[#7a5230]">
         <Wheat size={iconSize} /> {nutrition.fiber}g
       </span>
     </div>
@@ -945,7 +945,7 @@ function BrowseView({
                   <span className="flex items-center gap-1 text-emerald-800 font-medium">
                     <Dumbbell size={12} /> {proteinPerServing}g
                   </span>
-                  <span className="flex items-center gap-1 text-amber-800 font-medium">
+                  <span className="flex items-center gap-1 text-[#7a5230] font-medium">
                     <Wheat size={12} /> {fiberPerServing}g
                   </span>
                 </div>
@@ -1219,7 +1219,7 @@ function RecipeForm({
             <span className="flex items-center gap-1 text-emerald-800">
               <Dumbbell size={12} /> {proteinPerServing}g protein
             </span>
-            <span className="flex items-center gap-1 text-amber-800">
+            <span className="flex items-center gap-1 text-[#7a5230]">
               <Wheat size={12} /> {fiberPerServing}g fiber
             </span>
           </div>
@@ -1227,25 +1227,22 @@ function RecipeForm({
 
         <div className="space-y-2 mb-3">
           <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-            <span className="col-span-4">Ingredient</span>
+            <span className="col-span-5">Ingredient</span>
             <span className="col-span-1">Qty</span>
             <span className="col-span-1">Unit</span>
-            <span className="col-span-1 text-center" title="Calories">
-              <Flame size={11} className="inline" />
+            <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber (click a row's chip to edit)">
+              <Flame size={10} />
+              <Dumbbell size={10} />
+              <Wheat size={10} />
             </span>
-            <span className="col-span-1 text-center" title="Protein (g)">
-              <Dumbbell size={11} className="inline" />
+            <span
+              className="col-span-2 flex items-center justify-between"
+              title="Pantry staple · whole recipe vs. per serving · delete"
+            >
+              <Package size={11} />
+              <span>Per svg</span>
+              <span></span>
             </span>
-            <span className="col-span-1 text-center" title="Fiber (g)">
-              <Wheat size={11} className="inline" />
-            </span>
-            <span className="col-span-1 text-center" title="Pantry staple (skip in shopping list)">
-              <Package size={11} className="inline" />
-            </span>
-            <span className="col-span-1 text-center" title="Whole recipe vs. per serving">
-              Per svg
-            </span>
-            <span className="col-span-1"></span>
           </div>
           {fixedIngredients.map((ing) => (
             <IngredientRow
@@ -1276,28 +1273,23 @@ function RecipeForm({
             </div>
             <div className="space-y-2 mb-3">
               <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-                <span className="col-span-3">Ingredient</span>
+                <span className="col-span-4">Ingredient</span>
                 <span className="col-span-1">Qty</span>
                 <span className="col-span-1">Unit</span>
-                <span className="col-span-1 text-center" title="Calories">
-                  <Flame size={11} className="inline" />
+                <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber (click a row's chip to edit)">
+                  <Flame size={10} />
+                  <Dumbbell size={10} />
+                  <Wheat size={10} />
                 </span>
-                <span className="col-span-1 text-center" title="Protein (g)">
-                  <Dumbbell size={11} className="inline" />
+                <span
+                  className="col-span-3 flex items-center justify-between"
+                  title="Pantry staple · included by default · whole recipe vs. per serving · delete"
+                >
+                  <Package size={11} />
+                  <Star size={11} />
+                  <span>Per svg</span>
+                  <span></span>
                 </span>
-                <span className="col-span-1 text-center" title="Fiber (g)">
-                  <Wheat size={11} className="inline" />
-                </span>
-                <span className="col-span-1 text-center" title="Pantry staple (skip in shopping list)">
-                  <Package size={11} className="inline" />
-                </span>
-                <span className="col-span-1 text-center" title="Included by default when scheduled">
-                  <Star size={11} className="inline" />
-                </span>
-                <span className="col-span-1 text-center" title="Whole recipe vs. per serving">
-                  Per svg
-                </span>
-                <span className="col-span-1"></span>
               </div>
               {flexIngredients.map((ing) => (
                 <IngredientRow
@@ -1373,6 +1365,7 @@ function IngredientRow({
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [showMacrosEditor, setShowMacrosEditor] = useState(false);
   const [dismissedName, setDismissedName] = useState<string | null>(null);
   const [promptUnit, setPromptUnit] = useState(ingredient.unit);
   const [promptCalories, setPromptCalories] = useState("");
@@ -1381,6 +1374,12 @@ function IngredientRow({
   const [promptPantryStaple, setPromptPantryStaple] = useState(false);
   const [saving, setSaving] = useState(false);
   const quantityRef = useRef<HTMLInputElement>(null);
+  // Guards against a stale-closure bug: calling quantityRef.focus() inside
+  // selectSuggestion synchronously blurs the name input (still mid-click,
+  // before React re-renders with the just-selected values), so handleNameBlur
+  // would otherwise run against the OLD ingredient and wrongly show the
+  // save-to-library prompt right after a valid pick.
+  const justSelectedRef = useRef(false);
 
   const trimmedName = ingredient.name.trim();
   const exactMatch = library.find((l) => l.name.toLowerCase() === trimmedName.toLowerCase());
@@ -1388,30 +1387,52 @@ function IngredientRow({
     ? library.filter((l) => l.name.toLowerCase().includes(trimmedName.toLowerCase())).slice(0, 6)
     : [];
 
-  function selectSuggestion(lib: LibraryIngredient) {
-    const qty = parseFloat(ingredient.quantity) || 1;
-    onChange("name", lib.name);
+  // Copies a library ingredient's unit/macros/pantry flag onto this row and
+  // links it — shared by both ways of matching a library ingredient (picking
+  // a suggestion, or typing/blurring on an exact name match) so they behave
+  // identically.
+  function applyLibraryMatch(lib: LibraryIngredient, quantity: string) {
+    const qty = parseFloat(quantity) || 1;
     onChange("unit", lib.unit);
     onChange("calories", String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
     onChange("protein", String(Math.round(lib.proteinPerUnit * qty * 100) / 100));
     onChange("fiber", String(Math.round(lib.fiberPerUnit * qty * 100) / 100));
     onChange("pantryStaple", lib.pantryStaple);
     onChange("libraryId", lib.id);
+  }
+
+  function selectSuggestion(lib: LibraryIngredient) {
+    justSelectedRef.current = true;
+    onChange("name", lib.name);
+    applyLibraryMatch(lib, ingredient.quantity);
     setShowSuggestions(false);
     setShowSavePrompt(false);
     quantityRef.current?.focus();
+  }
+
+  function handleQuantityChange(value: string) {
+    onChange("quantity", value);
+    // Live-rescale macros for a linked ingredient as the amount changes.
+    if (ingredient.libraryId) {
+      const linked = library.find((l) => l.id === ingredient.libraryId);
+      if (linked) applyLibraryMatch(linked, value);
+    }
   }
 
   function handleNameBlur() {
     // Delay so a suggestion/save-prompt click has a chance to register
     // before we evaluate and possibly hide everything on blur.
     setTimeout(() => {
+      if (justSelectedRef.current) {
+        justSelectedRef.current = false;
+        return;
+      }
       setShowSuggestions(false);
       const name = ingredient.name.trim();
       if (!name) return;
       const match = library.find((l) => l.name.toLowerCase() === name.toLowerCase());
       if (match) {
-        if (ingredient.libraryId !== match.id) onChange("libraryId", match.id);
+        if (ingredient.libraryId !== match.id) applyLibraryMatch(match, ingredient.quantity);
         setShowSavePrompt(false);
         return;
       }
@@ -1456,7 +1477,7 @@ function IngredientRow({
 
   return (
     <div className="grid grid-cols-12 gap-2 items-start">
-      <div className={`${isFlexRow ? "col-span-3" : "col-span-4"} relative`}>
+      <div className={`${isFlexRow ? "col-span-4" : "col-span-5"} relative`}>
         <input
           value={ingredient.name}
           onChange={(e) => {
@@ -1498,7 +1519,7 @@ function IngredientRow({
         ref={quantityRef}
         type="number"
         value={ingredient.quantity}
-        onChange={(e) => onChange("quantity", e.target.value)}
+        onChange={(e) => handleQuantityChange(e.target.value)}
         placeholder="0"
         title="Quantity"
         className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
@@ -1515,99 +1536,140 @@ function IngredientRow({
           </option>
         ))}
       </select>
-      <input
-        type="number"
-        value={ingredient.calories}
-        onChange={(e) => onChange("calories", e.target.value)}
-        placeholder="0"
-        title="Calories"
-        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
-      />
-      <input
-        type="number"
-        value={ingredient.protein}
-        onChange={(e) => onChange("protein", e.target.value)}
-        placeholder="0"
-        title="Protein (g)"
-        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
-      />
-      <input
-        type="number"
-        value={ingredient.fiber}
-        onChange={(e) => onChange("fiber", e.target.value)}
-        placeholder="0"
-        title="Fiber (g)"
-        className="col-span-1 px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
-      />
-      <button
-        type="button"
-        onClick={() => onChange("pantryStaple", !ingredient.pantryStaple)}
-        title={
-          ingredient.pantryStaple
-            ? "Pantry staple — skip in shopping list (click to change)"
-            : "Mark as pantry staple (skip in shopping list)"
-        }
-        className="col-span-1 h-9 flex items-center justify-center"
+      <div
+        className="col-span-3 relative"
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setShowMacrosEditor(false);
+        }}
       >
-        <span
-          className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-            ingredient.pantryStaple ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
-          }`}
-        >
-          {ingredient.pantryStaple && <Check size={10} className="text-amber-50" />}
-        </span>
-      </button>
-      {isFlexRow && (
         <button
           type="button"
-          onClick={() => onChange("flexDefault", !ingredient.flexDefault)}
-          title={
-            ingredient.flexDefault
-              ? "Included by default when scheduled (click to change)"
-              : "Include by default when scheduled"
-          }
-          className="col-span-1 h-9 flex items-center justify-center"
+          onClick={() => setShowMacrosEditor((v) => !v)}
+          title="Edit calories, protein, fiber"
+          className="w-full min-h-9 py-1 px-1 rounded-lg flex items-center justify-center flex-wrap gap-x-1.5 gap-y-0.5 text-xs hover:bg-stone-200/60 transition-colors"
         >
-          <Star
-            size={15}
-            className={ingredient.flexDefault ? "text-amber-500 fill-amber-500" : "text-stone-300"}
-          />
+          <span className="flex items-center gap-0.5 text-orange-800 font-medium">
+            <Flame size={13} /> {ingredient.calories || 0}
+          </span>
+          <span className="flex items-center gap-0.5 text-emerald-800 font-medium">
+            <Dumbbell size={13} /> {ingredient.protein || 0}
+          </span>
+          <span className="flex items-center gap-0.5 text-[#7a5230] font-medium">
+            <Wheat size={13} /> {ingredient.fiber || 0}
+          </span>
         </button>
-      )}
-      <button
-        type="button"
-        role="switch"
-        aria-checked={ingredient.servingMode === "perServing"}
-        onClick={() =>
-          onChange("servingMode", ingredient.servingMode === "perServing" ? "whole" : "perServing")
-        }
-        title={
-          ingredient.servingMode === "perServing"
-            ? "Per serving — click for whole recipe"
-            : "Whole recipe — click for per serving"
-        }
-        className="col-span-1 h-9 flex items-center justify-center"
-      >
-        <span
-          className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
-            ingredient.servingMode === "perServing" ? "bg-emerald-700" : "bg-stone-300"
-          }`}
+
+        {showMacrosEditor && (
+          <div className="absolute z-20 right-0 mt-1 w-48 bg-white border border-stone-200 rounded-lg shadow-lg p-3 space-y-2">
+            <div>
+              <label className="text-[10px] text-stone-400 uppercase tracking-wide">Calories</label>
+              <input
+                type="number"
+                autoFocus
+                value={ingredient.calories}
+                onChange={(e) => onChange("calories", e.target.value)}
+                className="mt-0.5 w-full px-2 py-1.5 rounded border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-stone-400 uppercase tracking-wide">Protein (g)</label>
+              <input
+                type="number"
+                value={ingredient.protein}
+                onChange={(e) => onChange("protein", e.target.value)}
+                className="mt-0.5 w-full px-2 py-1.5 rounded border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-stone-400 uppercase tracking-wide">Fiber (g)</label>
+              <input
+                type="number"
+                value={ingredient.fiber}
+                onChange={(e) => onChange("fiber", e.target.value)}
+                className="mt-0.5 w-full px-2 py-1.5 rounded border border-stone-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowMacrosEditor(false)}
+              className="w-full text-xs font-medium text-emerald-800 hover:underline pt-1"
+            >
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+      <div className={`${isFlexRow ? "col-span-3" : "col-span-2"} flex items-center justify-between`}>
+        <button
+          type="button"
+          onClick={() => onChange("pantryStaple", !ingredient.pantryStaple)}
+          title={
+            ingredient.pantryStaple
+              ? "Pantry staple — skip in shopping list (click to change)"
+              : "Mark as pantry staple (skip in shopping list)"
+          }
+          className="h-9 flex items-center justify-center"
         >
           <span
-            className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-              ingredient.servingMode === "perServing" ? "translate-x-3.5" : "translate-x-0.5"
+            className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+              ingredient.pantryStaple ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
             }`}
-          />
-        </span>
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={disableRemove}
-        className="col-span-1 h-9 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
-      >
-        <Trash2 size={15} />
-      </button>
+          >
+            {ingredient.pantryStaple && <Check size={10} className="text-amber-50" />}
+          </span>
+        </button>
+        {isFlexRow && (
+          <button
+            type="button"
+            onClick={() => onChange("flexDefault", !ingredient.flexDefault)}
+            title={
+              ingredient.flexDefault
+                ? "Included by default when scheduled (click to change)"
+                : "Include by default when scheduled"
+            }
+            className="h-9 flex items-center justify-center"
+          >
+            <Star
+              size={15}
+              className={ingredient.flexDefault ? "text-amber-500 fill-amber-500" : "text-stone-300"}
+            />
+          </button>
+        )}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={ingredient.servingMode === "perServing"}
+          onClick={() =>
+            onChange("servingMode", ingredient.servingMode === "perServing" ? "whole" : "perServing")
+          }
+          title={
+            ingredient.servingMode === "perServing"
+              ? "Per serving — click for whole recipe"
+              : "Whole recipe — click for per serving"
+          }
+          className="h-9 flex items-center justify-center"
+        >
+          <span
+            className={`relative inline-flex h-4 w-7 flex-shrink-0 items-center rounded-full transition-colors ${
+              ingredient.servingMode === "perServing" ? "bg-emerald-700" : "bg-stone-300"
+            }`}
+          >
+            <span
+              className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                ingredient.servingMode === "perServing" ? "translate-x-3.5" : "translate-x-0.5"
+              }`}
+            />
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={disableRemove}
+          className="h-9 flex items-center justify-center text-stone-400 hover:text-orange-700 disabled:opacity-30"
+        >
+          <Trash2 size={15} />
+        </button>
+      </div>
 
       {showSavePrompt && (
         <div className="col-span-12 p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-xs space-y-2">
@@ -1737,7 +1799,7 @@ function MealPlanView({
                 <p className="flex items-center justify-center gap-1 text-[10px] text-emerald-800 font-medium">
                   <Dumbbell size={9} /> {n.protein}g
                 </p>
-                <p className="flex items-center justify-center gap-1 text-[10px] text-amber-800 font-medium">
+                <p className="flex items-center justify-center gap-1 text-[10px] text-[#7a5230] font-medium">
                   <Wheat size={9} /> {n.fiber}g
                 </p>
               </div>
