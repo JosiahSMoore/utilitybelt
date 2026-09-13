@@ -864,6 +864,25 @@ function HomeView({
         </button>
       </div>
 
+      <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5 mb-8">
+        <h2 className="font-display text-lg text-stone-900 mb-3">Quick add to shopping list</h2>
+        <form onSubmit={submitQuickAdd} className="flex gap-2">
+          <input
+            value={quickAddName}
+            onChange={(e) => setQuickAddName(e.target.value)}
+            placeholder="e.g. Paper towels"
+            className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          />
+          <button
+            type="submit"
+            disabled={!quickAddName.trim()}
+            className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full disabled:opacity-40"
+          >
+            <Plus size={15} /> Add
+          </button>
+        </form>
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-8">
         <ActionCard
           title="Add a recipe"
@@ -889,25 +908,6 @@ function HomeView({
           accent="bg-stone-700"
           onClick={() => setView("browse")}
         />
-      </div>
-
-      <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5 mb-8">
-        <h2 className="font-display text-lg text-stone-900 mb-3">Quick add to shopping list</h2>
-        <form onSubmit={submitQuickAdd} className="flex gap-2">
-          <input
-            value={quickAddName}
-            onChange={(e) => setQuickAddName(e.target.value)}
-            placeholder="e.g. Paper towels"
-            className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-          />
-          <button
-            type="submit"
-            disabled={!quickAddName.trim()}
-            className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full disabled:opacity-40"
-          >
-            <Plus size={15} /> Add
-          </button>
-        </form>
       </div>
     </div>
   );
@@ -3094,7 +3094,7 @@ function MealSlotActionModal({
             onClick={onCook}
             disabled={!canCook}
             title={canCook ? undefined : "Custom meals have no recipe to cook from"}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium bg-amber-700 text-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium bg-blue-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ChefHat size={16} /> Cook meal
           </button>
@@ -3102,7 +3102,7 @@ function MealSlotActionModal({
             onClick={onModify}
             disabled={!canModify}
             title={canModify ? undefined : "This meal has no flexible ingredients"}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border border-stone-200 text-stone-700 hover:bg-stone-100 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium bg-amber-700 text-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <SlidersHorizontal size={16} /> Modify ingredients
           </button>
