@@ -871,7 +871,7 @@ function HomeView({
             value={quickAddName}
             onChange={(e) => setQuickAddName(e.target.value)}
             placeholder="e.g. Paper towels"
-            className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
           />
           <button
             type="submit"
@@ -988,7 +988,7 @@ function BrowseView({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search recipes…"
-            className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
           />
         </div>
         <div className="flex gap-1.5 overflow-x-auto">
@@ -2291,11 +2291,10 @@ function RecipePickerModal({
             <div>
               <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">Meal name</label>
               <input
-                autoFocus
                 value={customName}
                 onChange={(e) => setCustomName(e.target.value)}
                 placeholder="e.g. Restaurant burger"
-                className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="mt-1 w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -2306,7 +2305,7 @@ function RecipePickerModal({
                   value={customCalories}
                   onChange={(e) => setCustomCalories(e.target.value)}
                   placeholder="0"
-                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
               </div>
               <div>
@@ -2316,7 +2315,7 @@ function RecipePickerModal({
                   value={customProtein}
                   onChange={(e) => setCustomProtein(e.target.value)}
                   placeholder="0"
-                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
               </div>
               <div>
@@ -2326,7 +2325,7 @@ function RecipePickerModal({
                   value={customFiber}
                   onChange={(e) => setCustomFiber(e.target.value)}
                   placeholder="0"
-                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  className="mt-1 w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
               </div>
             </div>
@@ -2471,7 +2470,7 @@ function ExtrasModal({
                 onFocus={() => setShowSuggestions(true)}
                 onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
                 placeholder="Search ingredients…"
-                className="w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="w-full px-3 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
               {showSuggestions && suggestions.length > 0 && (
                 <div className="absolute z-10 mt-1 w-full bg-white border border-stone-200 rounded-lg shadow-lg max-h-40 overflow-y-auto">
@@ -2497,14 +2496,14 @@ function ExtrasModal({
                   value={quantity}
                   onChange={(e) => setQuantity(e.target.value)}
                   placeholder={`Qty (${unit})`}
-                  className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
                 <input
                   type="number"
                   value={calories}
                   onChange={(e) => setCalories(e.target.value)}
                   placeholder="Calories"
-                  className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                  className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
                 />
               </div>
             </div>
@@ -2514,14 +2513,14 @@ function ExtrasModal({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="What did you eat?"
-                className="px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="px-3 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
               <input
                 type="number"
                 value={calories}
                 onChange={(e) => setCalories(e.target.value)}
                 placeholder="Calories"
-                className="px-3 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+                className="px-3 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
               />
             </div>
           )}
@@ -2681,7 +2680,7 @@ function ShoppingListView({
           value={newItemName}
           onChange={(e) => setNewItemName(e.target.value)}
           placeholder="Add an item…"
-          className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <button
           type="submit"
@@ -2813,7 +2812,7 @@ function IngredientLibraryView({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search ingredients…"
-          className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
       </div>
 
@@ -2969,12 +2968,12 @@ function IngredientLibraryForm({
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Ingredient name"
-          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <select
           value={unit}
           onChange={(e) => setUnit(e.target.value)}
-          className="px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         >
           {UNITS.map((u) => (
             <option key={u} value={u}>
@@ -2989,21 +2988,21 @@ function IngredientLibraryForm({
           value={calories}
           onChange={(e) => setCalories(e.target.value)}
           placeholder="Cal/unit"
-          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <input
           type="number"
           value={protein}
           onChange={(e) => setProtein(e.target.value)}
           placeholder="Protein/unit (g)"
-          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <input
           type="number"
           value={fiber}
           onChange={(e) => setFiber(e.target.value)}
           placeholder="Fiber/unit (g)"
-          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
       </div>
       <label className="flex items-center gap-1.5 text-sm text-stone-600 mb-3">
