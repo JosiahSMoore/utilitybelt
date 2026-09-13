@@ -19,10 +19,6 @@ export type Ingredient = {
   // and calories are per single serving (toppings, garnishes) — not
   // divided, and multiplied by servings for the shopping list instead.
   servingMode?: ServingMode;
-  // Pantry staples (salt, oil, spices you always have) get skipped when
-  // building the shopping list from the meal plan. Defaults from the
-  // library ingredient when picked, but overridable per recipe.
-  pantryStaple?: boolean;
   // Flexible ingredients are swappable options (e.g. "pick your vegetables"
   // in a curry) grouped separately from the recipe's fixed ingredients.
   // `flexDefault` is whether it's ON by default when the recipe is newly
@@ -41,6 +37,10 @@ export type LibraryIngredient = {
   caloriesPerUnit: number;
   proteinPerUnit: number;
   fiberPerUnit: number;
+  // Pantry staples (salt, oil, spices you always have) get skipped when
+  // building the shopping list from the meal plan. This is the only place
+  // it's set — edited here or when first saving a new ingredient to the
+  // library — a recipe's own ingredient line has no override for it.
   pantryStaple: boolean;
 };
 

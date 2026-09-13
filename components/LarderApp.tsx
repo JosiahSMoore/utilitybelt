@@ -309,7 +309,10 @@ export default function LarderApp({
         const flexIds = slotValue?.flexSelection;
         (recipe.ingredients || []).forEach((ing) => {
           if (!ing.name || !ing.name.trim()) return;
-          if (ing.pantryStaple) return;
+          const linkedLibraryEntry = ing.libraryId
+            ? ingredientLibrary.find((l) => l.id === ing.libraryId)
+            : null;
+          if (linkedLibraryEntry?.pantryStaple) return;
           if (ing.isFlex) {
             const isOn = flexIds ? flexIds.includes(ing.id) : Boolean(ing.flexDefault);
             if (!isOn) return;
@@ -1230,18 +1233,12 @@ function RecipeForm({
             <span className="col-span-5">Ingredient</span>
             <span className="col-span-1">Qty</span>
             <span className="col-span-1">Unit</span>
-            <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
+            <span className="col-span-4 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
               <Flame size={10} />
               <Dumbbell size={10} />
               <Wheat size={10} />
             </span>
-            <span
-              className="col-span-2 flex items-center justify-between"
-              title="Pantry staple · delete"
-            >
-              <Package size={11} />
-              <span></span>
-            </span>
+            <span className="col-span-1"></span>
           </div>
           {fixedIngredients.map((ing) => (
             <IngredientRow
@@ -1277,18 +1274,16 @@ function RecipeForm({
                 <span className="col-span-4">Ingredient</span>
                 <span className="col-span-1">Qty</span>
                 <span className="col-span-1">Unit</span>
-                <span className="col-span-3 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
+                <span className="col-span-4 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
                   <Flame size={10} />
                   <Dumbbell size={10} />
                   <Wheat size={10} />
                 </span>
                 <span
-                  className="col-span-3 flex items-center justify-between"
-                  title="Pantry staple · included by default · delete"
+                  className="col-span-2 flex items-center justify-end gap-2"
+                  title="Included by default · delete"
                 >
-                  <Package size={11} />
                   <Star size={11} />
-                  <span></span>
                 </span>
               </div>
               {flexIngredients.map((ing) => (
@@ -1401,7 +1396,6 @@ function IngredientRow({
     onChange("calories", String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
     onChange("protein", String(Math.round(lib.proteinPerUnit * qty * 100) / 100));
     onChange("fiber", String(Math.round(lib.fiberPerUnit * qty * 100) / 100));
-    onChange("pantryStaple", lib.pantryStaple);
     onChange("libraryId", lib.id);
   }
 
@@ -1469,7 +1463,6 @@ function IngredientRow({
     setSaving(false);
     if (saved) {
       onChange("libraryId", saved.id);
-      onChange("pantryStaple", promptPantryStaple);
       setShowSavePrompt(false);
     }
   }
@@ -1541,7 +1534,7 @@ function IngredientRow({
         ))}
       </select>
       <div
-        className="col-span-2 sm:col-span-3 relative"
+        className="col-span-2 sm:col-span-4 relative"
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget)) setShowMacrosEditor(false);
         }}
@@ -1634,26 +1627,8 @@ function IngredientRow({
         )}
       </div>
       <div
-        className={`col-span-4 ${isFlexRow ? "sm:col-span-3" : "sm:col-span-2"} flex items-center justify-between`}
+        className={`col-span-4 ${isFlexRow ? "sm:col-span-2" : "sm:col-span-1"} flex items-center justify-end gap-2`}
       >
-        <button
-          type="button"
-          onClick={() => onChange("pantryStaple", !ingredient.pantryStaple)}
-          title={
-            ingredient.pantryStaple
-              ? "Pantry staple — skip in shopping list (click to change)"
-              : "Mark as pantry staple (skip in shopping list)"
-          }
-          className="h-11 sm:h-9 px-1 flex items-center justify-center"
-        >
-          <span
-            className={`w-5 h-5 sm:w-4 sm:h-4 rounded-full border flex items-center justify-center ${
-              ingredient.pantryStaple ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
-            }`}
-          >
-            {ingredient.pantryStaple && <Check size={11} className="text-amber-50" />}
-          </span>
-        </button>
         {isFlexRow && (
           <button
             type="button"

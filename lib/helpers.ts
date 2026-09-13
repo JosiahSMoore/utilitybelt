@@ -15,7 +15,6 @@ export function emptyIngredient(): Ingredient {
     fiber: "",
     libraryId: null,
     servingMode: "whole",
-    pantryStaple: false,
     isFlex: false,
     flexDefault: false,
   };
