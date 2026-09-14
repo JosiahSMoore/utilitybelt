@@ -27,6 +27,7 @@ import {
   RefreshCw,
   Upload,
   Sparkles,
+  Copy,
 } from "lucide-react";
 import {
   addDailyExtraAction,
@@ -3344,6 +3345,35 @@ function IngredientLibraryView({
   const [formPantryStaple, setFormPantryStaple] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Same shape as /api/ingredients-feed — a client-side copy of that same
+  // export, for pasting straight into Claude Chat when a live fetch isn't
+  // reliable (its fetch tool caches by URL, which made a repeat check
+  // return stale data even with the feed's own no-store headers).
+  async function copyLibraryAsJson() {
+    const payload = {
+      ingredients: library.map((l) => ({
+        id: l.id,
+        name: l.name,
+        baseUnit: l.baseUnit,
+        caloriesPerBaseUnit: l.caloriesPerBaseUnit,
+        proteinPerBaseUnit: l.proteinPerBaseUnit,
+        fiberPerBaseUnit: l.fiberPerBaseUnit,
+        referenceUnit: l.referenceUnit ?? null,
+        gramsPerReferenceUnit: l.gramsPerReferenceUnit ?? null,
+        pantryStaple: l.pantryStaple,
+      })),
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard API can fail (permissions, insecure context) — nothing
+      // more graceful to do than leave the button as if nothing happened.
+    }
+  }
 
   const filtered = library.filter(
     (i) => i.name.toLowerCase().includes(query.toLowerCase()) && (!pantryOnly || i.pantryStaple)
@@ -3410,14 +3440,24 @@ function IngredientLibraryView({
         <ChevronLeft size={16} /> Back to recipes
       </button>
 
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
         <h1 className="font-display text-2xl text-stone-900">Ingredient library</h1>
-        <button
-          onClick={startAdd}
-          className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
-        >
-          <Plus size={15} /> Add ingredient
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copyLibraryAsJson}
+            title="Copy the full ingredient library as JSON — paste into the recipe-import Claude Skill"
+            className="flex items-center gap-1.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-full hover:bg-stone-100 px-3.5 py-2"
+          >
+            {copied ? <Check size={15} className="text-emerald-700" /> : <Copy size={15} />}
+            {copied ? "Copied!" : "Copy JSON"}
+          </button>
+          <button
+            onClick={startAdd}
+            className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+          >
+            <Plus size={15} /> Add ingredient
+          </button>
+        </div>
       </div>
 
       <div className="relative mb-5">
