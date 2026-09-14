@@ -20,7 +20,7 @@ import {
   Dumbbell,
   Wheat,
   Package,
-  SlidersHorizontal,
+  Shuffle,
   Star,
   ChefHat,
   Minus,
@@ -1484,7 +1484,7 @@ function ImportRecipeView({
           <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5">
             <h3 className="font-display text-lg text-stone-900 mb-3">Ingredients</h3>
             <p className="flex items-center gap-1 text-[11px] text-stone-400 mb-2">
-              <SlidersHorizontal size={10} /> = flexible ·{" "}
+              <Shuffle size={10} /> = flexible ·{" "}
               <Star size={10} className="text-amber-500 fill-amber-500" /> = its default option
             </p>
             <table className="w-full text-sm">
@@ -1529,7 +1529,7 @@ function ImportRecipeView({
                               ing.isFlex ? "bg-emerald-100 text-emerald-700" : "text-stone-300 hover:text-stone-500"
                             }`}
                           >
-                            <SlidersHorizontal size={12} />
+                            <Shuffle size={12} />
                           </button>
                           {ing.isFlex && (
                             <button
@@ -1754,7 +1754,7 @@ function RecipeDetail({
                           {ing.servingMode === "perServing" && (
                             <span className="text-[10px] text-stone-400">/serving</span>
                           )}
-                          {ing.isFlex && <SlidersHorizontal size={11} className="text-stone-400" />}
+                          {ing.isFlex && <Shuffle size={11} className="text-stone-400" />}
                           {ing.isFlex && ing.flexDefault && (
                             <Star size={11} className="text-amber-500 fill-amber-500" />
                           )}
@@ -1772,7 +1772,7 @@ function RecipeDetail({
             {hasFlexIngredients(recipe) && (
               <p className="text-[11px] text-stone-400 mt-3 flex items-center gap-3 flex-wrap">
                 <span className="flex items-center gap-1">
-                  <SlidersHorizontal size={10} className="text-stone-400" /> flexible
+                  <Shuffle size={10} className="text-stone-400" /> flexible
                 </span>
                 <span className="flex items-center gap-1">
                   <Star size={10} className="text-amber-500 fill-amber-500" /> its default option
@@ -1933,7 +1933,7 @@ function RecipeForm({
         </div>
 
         <p className="text-[11px] text-stone-400 mb-2 flex items-center gap-1">
-          <SlidersHorizontal size={10} /> on a row marks it flexible — a swappable option grouped with
+          <Shuffle size={10} /> on a row marks it flexible — a swappable option grouped with
           whatever section it's in, instead of always fixed.
         </p>
 
@@ -1951,7 +1951,7 @@ function RecipeForm({
               className="col-span-2 flex items-center justify-end gap-2"
               title="Flexible · included by default · delete"
             >
-              <SlidersHorizontal size={10} />
+              <Shuffle size={10} />
               <Star size={10} />
             </span>
           </div>
@@ -2401,7 +2401,7 @@ function IngredientRow({
             ingredient.isFlex ? "text-emerald-700 bg-emerald-50" : "text-stone-300 hover:text-stone-500"
           }`}
         >
-          <SlidersHorizontal size={15} />
+          <Shuffle size={15} />
         </button>
         {ingredient.isFlex && (
           <button
@@ -3824,7 +3824,7 @@ function MealSlotActionModal({
             title={canModify ? undefined : "This meal has no flexible ingredients"}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium bg-amber-700 text-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            <SlidersHorizontal size={16} /> Modify ingredients
+            <Shuffle size={16} /> Modify ingredients
           </button>
           <button
             onClick={onRemove}
