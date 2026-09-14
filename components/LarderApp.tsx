@@ -25,6 +25,8 @@ import {
   ChefHat,
   Minus,
   RefreshCw,
+  Upload,
+  Sparkles,
 } from "lucide-react";
 import {
   addDailyExtraAction,
@@ -36,6 +38,7 @@ import {
   deleteLibraryIngredientAction,
   deleteRecipeAction,
   deleteShoppingItemsAction,
+  importRecipeAction,
   saveLibraryIngredientAction,
   saveRecipeAction,
   syncShoppingListAction,
@@ -43,9 +46,18 @@ import {
   updateFlexSelectionAction,
   updateLibraryIngredientAction,
 } from "@/app/actions";
-import { CATEGORIES, CATEGORY_STYLE, MEAL_SLOTS, SLOT_LABEL, UNITS } from "@/lib/constants";
+import {
+  CATEGORIES,
+  CATEGORY_STYLE,
+  COUNT_UNITS,
+  MEAL_SLOTS,
+  SLOT_LABEL,
+  UNITS,
+  VOLUME_UNITS,
+} from "@/lib/constants";
 import {
   defaultFlexIds,
+  defaultUnitForLibraryIngredient,
   emptyIngredient,
   emptyRecipe,
   emptySectionHeader,
@@ -53,6 +65,8 @@ import {
   getNext7Days,
   groupIngredientsBySection,
   hasFlexIngredients,
+  isConvertibleUnit,
+  libraryIngredientMacros,
   parseInstructionSteps,
   recipeCalories,
   recipeFiber,
@@ -62,13 +76,18 @@ import {
 import type {
   CustomMeal,
   DailyExtra,
+  ImportIngredient,
   Ingredient,
+  IngredientBaseUnit,
   LibraryIngredient,
   MealPlan,
   MealSlot,
   MealSlotValue,
+  NewLibraryIngredientInput,
   Recipe,
+  RecipeImportPayload,
   ShoppingItem,
+  VolumeUnit,
 } from "@/lib/types";
 
 type View =
@@ -78,16 +97,19 @@ type View =
   | "recipeDetail"
   | "mealPlan"
   | "shoppingList"
-  | "ingredientLibrary";
+  | "ingredientLibrary"
+  | "importRecipe";
 
 type DayNutrition = { calories: number; protein: number; fiber: number };
 
 type LibraryIngredientInput = {
   name: string;
-  unit: string;
-  caloriesPerUnit: number;
-  proteinPerUnit: number;
-  fiberPerUnit: number;
+  baseUnit: IngredientBaseUnit;
+  caloriesPerBaseUnit: number;
+  proteinPerBaseUnit: number;
+  fiberPerBaseUnit: number;
+  referenceUnit?: VolumeUnit | null;
+  gramsPerReferenceUnit?: number | null;
   pantryStaple: boolean;
 };
 
@@ -97,6 +119,14 @@ type LibraryIngredientInput = {
 // date/slot, it just keys off the recipe.
 function cookingSessionKey(recipeId: string, date?: string, slot?: MealSlot): string {
   return `cookingMode:${recipeId}${date && slot ? `:${date}:${slot}` : ""}`;
+}
+
+// A compact "3.6 cal/g" / "72 cal/item" summary for library ingredient
+// suggestion dropdowns — shared across every place one appears (recipe
+// ingredient rows, daily extras).
+function libraryIngredientSummary(lib: LibraryIngredient): string {
+  const per = lib.baseUnit === "grams" ? "g" : "item";
+  return `${Math.round(lib.caloriesPerBaseUnit * 100) / 100} cal/${per}`;
 }
 
 function slotDisplayName(slot: MealSlotValue | null | undefined, recipes: Recipe[]): string | null {
@@ -259,6 +289,27 @@ export default function LarderApp({
       showToast(exists ? "Recipe updated." : "Recipe saved.");
     } catch {
       showToast("Couldn't save recipe — try again.");
+    }
+  }
+
+  async function importRecipe(payload: RecipeImportPayload): Promise<{ recipeId: string } | null> {
+    try {
+      const { recipe, newIngredients } = await importRecipeAction(payload);
+      setRecipes((prev) => [...prev, recipe]);
+      if (newIngredients.length > 0) {
+        setIngredientLibrary((prev) =>
+          [...prev, ...newIngredients].sort((a, b) => a.name.localeCompare(b.name))
+        );
+      }
+      showToast(
+        newIngredients.length > 0
+          ? `Recipe imported — added ${newIngredients.length} new ingredient${newIngredients.length === 1 ? "" : "s"}.`
+          : "Recipe imported."
+      );
+      return { recipeId: recipe.id };
+    } catch {
+      showToast("Couldn't import that recipe — try again.");
+      return null;
     }
   }
 
@@ -619,7 +670,19 @@ export default function LarderApp({
               setEditingRecipe(null);
               setView("addRecipe");
             }}
+            onImport={() => setView("importRecipe")}
             onManageIngredients={() => setView("ingredientLibrary")}
+          />
+        )}
+
+        {view === "importRecipe" && (
+          <ImportRecipeView
+            onImport={importRecipe}
+            onDone={(recipeId) => {
+              setSelectedRecipeId(recipeId);
+              setView("recipeDetail");
+            }}
+            onCancel={() => setView("browse")}
           />
         )}
 
@@ -838,7 +901,10 @@ function NavItems({
         const active =
           view === key ||
           (key === "browse" &&
-            (view === "recipeDetail" || view === "addRecipe" || view === "ingredientLibrary"));
+            (view === "recipeDetail" ||
+              view === "addRecipe" ||
+              view === "ingredientLibrary" ||
+              view === "importRecipe"));
         return (
           <button
             key={key}
@@ -1034,6 +1100,7 @@ function BrowseView({
   setCategory,
   onOpen,
   onAdd,
+  onImport,
   onManageIngredients,
 }: {
   recipes: Recipe[];
@@ -1043,6 +1110,7 @@ function BrowseView({
   setCategory: (c: string) => void;
   onOpen: (id: string) => void;
   onAdd: () => void;
+  onImport: () => void;
   onManageIngredients: () => void;
 }) {
   return (
@@ -1057,6 +1125,14 @@ function BrowseView({
           >
             <BookOpen size={15} />
             <span className="hidden md:inline">Manage ingredients</span>
+          </button>
+          <button
+            onClick={onImport}
+            title="Import recipe from JSON"
+            className="flex items-center justify-center gap-1.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-full hover:bg-stone-100 w-9 h-9 md:w-auto md:px-3.5 md:py-2"
+          >
+            <Upload size={15} />
+            <span className="hidden md:inline">Import</span>
           </button>
           <button
             onClick={onAdd}
@@ -1130,6 +1206,264 @@ function BrowseView({
               </button>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Import Recipe (JSON upload) ---------- */
+
+function validateImportPayload(
+  json: unknown
+): { ok: true; payload: RecipeImportPayload } | { ok: false; error: string } {
+  if (!json || typeof json !== "object") {
+    return { ok: false, error: "That file doesn't contain a JSON object." };
+  }
+  const obj = json as Record<string, unknown>;
+  const recipe = obj.recipe;
+  if (!recipe || typeof recipe !== "object") {
+    return { ok: false, error: 'Missing a "recipe" object.' };
+  }
+  const r = recipe as Record<string, unknown>;
+  if (typeof r.name !== "string" || !r.name.trim()) {
+    return { ok: false, error: "The recipe is missing a name." };
+  }
+  if (!Array.isArray(r.ingredients)) {
+    return { ok: false, error: "The recipe is missing an ingredients array." };
+  }
+  const newIngredients = Array.isArray(obj.newIngredients) ? obj.newIngredients : [];
+  const refs = new Set(
+    newIngredients.map((n) => (n as { ref?: unknown }).ref).filter((ref) => typeof ref === "string")
+  );
+  for (const ing of r.ingredients as Record<string, unknown>[]) {
+    if (ing.newIngredientRef && !refs.has(ing.newIngredientRef as string)) {
+      return {
+        ok: false,
+        error: `"${ing.name}" references a new ingredient ("${ing.newIngredientRef}") that isn't listed in newIngredients.`,
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    payload: {
+      recipe: {
+        name: r.name as string,
+        category: typeof r.category === "string" ? r.category : "Dinner",
+        servings: (r.servings as number | string) ?? 4,
+        instructions: typeof r.instructions === "string" ? r.instructions : "",
+        ingredients: r.ingredients as ImportIngredient[],
+      },
+      newIngredients: newIngredients as NewLibraryIngredientInput[],
+    },
+  };
+}
+
+function ImportRecipeView({
+  onImport,
+  onDone,
+  onCancel,
+}: {
+  onImport: (payload: RecipeImportPayload) => Promise<{ recipeId: string } | null>;
+  onDone: (recipeId: string) => void;
+  onCancel: () => void;
+}) {
+  const [payload, setPayload] = useState<RecipeImportPayload | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function handleFile(file: File) {
+    setParseError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const json = JSON.parse(String(reader.result));
+        const validated = validateImportPayload(json);
+        if (!validated.ok) {
+          setParseError(validated.error);
+          return;
+        }
+        setPayload(validated.payload);
+      } catch {
+        setParseError("That file isn't valid JSON.");
+      }
+    };
+    reader.onerror = () => setParseError("Couldn't read that file.");
+    reader.readAsText(file);
+  }
+
+  async function confirmImport() {
+    if (!payload) return;
+    setImporting(true);
+    const result = await onImport(payload);
+    setImporting(false);
+    if (result) onDone(result.recipeId);
+  }
+
+  const steps = payload ? parseInstructionSteps(payload.recipe.instructions) : [];
+
+  return (
+    <div>
+      <button onClick={onCancel} className="flex items-center gap-1 text-stone-500 text-sm mb-4 hover:text-stone-800">
+        <ChevronLeft size={16} /> Back to recipes
+      </button>
+      <h1 className="font-display text-2xl text-stone-900 mb-5">Import recipe</h1>
+
+      {!payload ? (
+        <div className="bg-amber-50 border border-dashed border-stone-300 rounded-2xl p-8 text-center">
+          <Upload size={28} className="mx-auto text-stone-400 mb-3" />
+          <p className="text-stone-600 text-sm mb-1">Upload a recipe .json file</p>
+          <p className="text-stone-400 text-xs mb-4">
+            Generated by the recipe-import Claude Skill, or hand-written to match its format.
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFile(file);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full"
+          >
+            <Upload size={15} /> Choose file
+          </button>
+          {parseError && <p className="text-orange-700 text-sm mt-4">{parseError}</p>}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5">
+            <span
+              className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full mb-2 ${
+                CATEGORY_STYLE[payload.recipe.category] ?? "bg-stone-200 text-stone-700"
+              }`}
+            >
+              {payload.recipe.category}
+            </span>
+            <h2 className="font-display text-xl text-stone-900">{payload.recipe.name}</h2>
+            <p className="text-stone-500 text-sm mt-1">{payload.recipe.servings} servings</p>
+          </div>
+
+          {payload.newIngredients.length > 0 && (
+            <div className="bg-amber-100 border border-amber-200 rounded-2xl p-4">
+              <h3 className="flex items-center gap-1.5 text-sm font-medium text-amber-900 mb-2">
+                <Sparkles size={14} /> {payload.newIngredients.length} new ingredient
+                {payload.newIngredients.length === 1 ? "" : "s"} will be added to your library
+              </h3>
+              <ul className="space-y-1.5">
+                {payload.newIngredients.map((n) => (
+                  <li
+                    key={n.ref}
+                    className="text-sm text-stone-700 flex items-center justify-between gap-2 bg-white/60 rounded-lg px-3 py-2"
+                  >
+                    <span className="font-medium">{n.name}</span>
+                    <span className="text-xs text-stone-500">
+                      {n.baseUnit === "grams"
+                        ? `${Math.round(n.caloriesPerBaseUnit * 100 * 100) / 100} cal/100g`
+                        : `${n.caloriesPerBaseUnit} cal/item`}
+                      {n.referenceUnit && n.gramsPerReferenceUnit
+                        ? ` · ${n.gramsPerReferenceUnit}g/${n.referenceUnit}`
+                        : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5">
+            <h3 className="font-display text-lg text-stone-900 mb-3">Ingredients</h3>
+            <table className="w-full text-sm">
+              <tbody>
+                {payload.recipe.ingredients.map((ing, idx) =>
+                  ing.isSectionHeader ? (
+                    <tr key={idx}>
+                      <td colSpan={3} className="pt-4 pb-1.5 first:pt-0">
+                        {ing.name ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide whitespace-nowrap">
+                              {ing.name}
+                            </span>
+                            <div className="flex-1 border-t border-stone-200" />
+                          </div>
+                        ) : (
+                          <div className="border-t border-stone-200" />
+                        )}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={idx} className="border-b border-stone-200 last:border-0">
+                      <td className="py-2 text-stone-800">
+                        {ing.name}
+                        {ing.newIngredientRef && (
+                          <span className="ml-1.5 text-[10px] font-medium uppercase tracking-wide bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-full">
+                            New
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2 text-stone-500 text-right whitespace-nowrap">
+                        {ing.quantity} {ing.unit}
+                      </td>
+                      <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
+                    </tr>
+                  )
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5">
+            <h3 className="font-display text-lg text-stone-900 mb-3">Instructions</h3>
+            {steps.length === 0 ? (
+              <p className="text-stone-500 text-sm">No instructions.</p>
+            ) : (
+              <ol className="space-y-3">
+                {steps.map((step, idx) => (
+                  <li key={idx} className="flex gap-3 text-sm">
+                    <span className="font-display text-stone-400 flex-shrink-0 w-5">{idx + 1}</span>
+                    <div>
+                      {step.categories.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {step.categories.map((c) => (
+                            <span
+                              key={c}
+                              className="text-[10px] font-medium uppercase tracking-wide bg-stone-200 text-stone-600 px-1.5 py-0.5 rounded"
+                            >
+                              {c}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-stone-700 leading-relaxed">{step.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => setPayload(null)}
+              className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100"
+            >
+              Choose a different file
+            </button>
+            <button
+              onClick={confirmImport}
+              disabled={importing}
+              className="px-5 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-40"
+            >
+              {importing ? "Importing…" : "Confirm & import"}
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -1674,10 +2008,12 @@ function IngredientRow({
   const [showSavePrompt, setShowSavePrompt] = useState(false);
   const [showMacrosEditor, setShowMacrosEditor] = useState(false);
   const [dismissedName, setDismissedName] = useState<string | null>(null);
-  const [promptUnit, setPromptUnit] = useState(ingredient.unit);
+  const [promptBaseUnit, setPromptBaseUnit] = useState<IngredientBaseUnit>("grams");
   const [promptCalories, setPromptCalories] = useState("");
   const [promptProtein, setPromptProtein] = useState("");
   const [promptFiber, setPromptFiber] = useState("");
+  const [promptReferenceUnit, setPromptReferenceUnit] = useState<VolumeUnit | "">("");
+  const [promptGramsPerReferenceUnit, setPromptGramsPerReferenceUnit] = useState("");
   const [promptPantryStaple, setPromptPantryStaple] = useState(false);
   const [saving, setSaving] = useState(false);
   const quantityRef = useRef<HTMLInputElement>(null);
@@ -1694,16 +2030,27 @@ function IngredientRow({
     ? library.filter((l) => l.name.toLowerCase().includes(trimmedName.toLowerCase())).slice(0, 6)
     : [];
 
-  // Copies a library ingredient's unit/macros/pantry flag onto this row and
-  // links it — shared by both ways of matching a library ingredient (picking
-  // a suggestion, or typing/blurring on an exact name match) so they behave
-  // identically.
-  function applyLibraryMatch(lib: LibraryIngredient, quantity: string) {
+  // Copies a library ingredient's macros/link onto this row — shared by
+  // every way of matching one (picking a suggestion, typing/blurring on an
+  // exact name match, or just changing the quantity on an already-linked
+  // row) so they all behave identically. Keeps whatever unit is already on
+  // the row if it's convertible for this ingredient (grams is always
+  // convertible, so a fresh row's default "g" is respected rather than
+  // getting silently swapped to e.g. "tbsp"); only falls back to the
+  // ingredient's own natural unit when the current one genuinely can't
+  // produce a number (e.g. switching from a count-style ingredient).
+  function applyLibraryMatch(lib: LibraryIngredient, quantity: string, explicitUnit?: string) {
     const qty = parseFloat(quantity) || 1;
-    onChange("unit", lib.unit);
-    onChange("calories", String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
-    onChange("protein", String(Math.round(lib.proteinPerUnit * qty * 100) / 100));
-    onChange("fiber", String(Math.round(lib.fiberPerUnit * qty * 100) / 100));
+    const targetUnit =
+      explicitUnit ??
+      (isConvertibleUnit(lib, ingredient.unit) ? ingredient.unit : defaultUnitForLibraryIngredient(lib));
+    if (targetUnit !== ingredient.unit) onChange("unit", targetUnit);
+    const macros = libraryIngredientMacros(lib, qty, targetUnit);
+    if (macros) {
+      onChange("calories", String(Math.round(macros.calories * 100) / 100));
+      onChange("protein", String(Math.round(macros.protein * 100) / 100));
+      onChange("fiber", String(Math.round(macros.fiber * 100) / 100));
+    }
     onChange("libraryId", lib.id);
   }
 
@@ -1723,6 +2070,19 @@ function IngredientRow({
       const linked = library.find((l) => l.id === ingredient.libraryId);
       if (linked) applyLibraryMatch(linked, value);
     }
+  }
+
+  function handleUnitChange(newUnit: string) {
+    // Live-rescale macros for a linked ingredient as the unit changes —
+    // e.g. switching a linked "Flour" row from grams to cups.
+    if (ingredient.libraryId) {
+      const linked = library.find((l) => l.id === ingredient.libraryId);
+      if (linked) {
+        applyLibraryMatch(linked, ingredient.quantity, newUnit);
+        return;
+      }
+    }
+    onChange("unit", newUnit);
   }
 
   function handleNameBlur() {
@@ -1747,30 +2107,60 @@ function IngredientRow({
       const cals = parseFloat(ingredient.calories) || 0;
       const protein = parseFloat(ingredient.protein) || 0;
       const fiber = parseFloat(ingredient.fiber) || 0;
-      setPromptUnit(ingredient.unit);
-      setPromptCalories(qty > 0 && cals > 0 ? String(Math.round((cals / qty) * 100) / 100) : "");
-      setPromptProtein(qty > 0 && protein > 0 ? String(Math.round((protein / qty) * 100) / 100) : "");
-      setPromptFiber(qty > 0 && fiber > 0 ? String(Math.round((fiber / qty) * 100) / 100) : "");
+      const isCountUnit = COUNT_UNITS.includes(ingredient.unit);
+      setPromptBaseUnit(isCountUnit ? "count" : "grams");
+      // Only safe to prefill a rate when this row's own unit is already
+      // grams (direct per-100g conversion) or count-style (direct per-item
+      // pass-through) — any other unit (oz, cup, tbsp...) would need a
+      // conversion this prompt doesn't have enough info to make, so it's
+      // left blank rather than showing a wrong number.
+      if (ingredient.unit === "g" && qty > 0) {
+        setPromptCalories(cals > 0 ? String(Math.round((cals / qty) * 100 * 100) / 100) : "");
+        setPromptProtein(protein > 0 ? String(Math.round((protein / qty) * 100 * 100) / 100) : "");
+        setPromptFiber(fiber > 0 ? String(Math.round((fiber / qty) * 100 * 100) / 100) : "");
+      } else if (isCountUnit && qty > 0) {
+        setPromptCalories(cals > 0 ? String(Math.round((cals / qty) * 100) / 100) : "");
+        setPromptProtein(protein > 0 ? String(Math.round((protein / qty) * 100) / 100) : "");
+        setPromptFiber(fiber > 0 ? String(Math.round((fiber / qty) * 100) / 100) : "");
+      } else {
+        setPromptCalories("");
+        setPromptProtein("");
+        setPromptFiber("");
+      }
+      setPromptReferenceUnit("");
+      setPromptGramsPerReferenceUnit("");
       setPromptPantryStaple(false);
       setShowSavePrompt(true);
     }, 150);
   }
 
   async function confirmSaveToLibrary() {
-    const caloriesPerUnit = parseFloat(promptCalories);
-    if (!trimmedName || Number.isNaN(caloriesPerUnit)) return;
+    const enteredCalories = parseFloat(promptCalories);
+    if (!trimmedName || Number.isNaN(enteredCalories)) return;
     setSaving(true);
+    // The prompt collects rates per 100g (grams) or per item (count) —
+    // convert grams-based entries down to the canonical per-gram rate the
+    // library actually stores.
+    const perBaseUnit = (entered: string) => {
+      const n = parseFloat(entered) || 0;
+      return promptBaseUnit === "grams" ? n / 100 : n;
+    };
     const saved = await onSaveNewLibraryIngredient({
       name: trimmedName,
-      unit: promptUnit,
-      caloriesPerUnit,
-      proteinPerUnit: parseFloat(promptProtein) || 0,
-      fiberPerUnit: parseFloat(promptFiber) || 0,
+      baseUnit: promptBaseUnit,
+      caloriesPerBaseUnit: perBaseUnit(promptCalories),
+      proteinPerBaseUnit: perBaseUnit(promptProtein),
+      fiberPerBaseUnit: perBaseUnit(promptFiber),
+      referenceUnit: promptBaseUnit === "grams" && promptReferenceUnit ? promptReferenceUnit : null,
+      gramsPerReferenceUnit:
+        promptBaseUnit === "grams" && promptGramsPerReferenceUnit
+          ? parseFloat(promptGramsPerReferenceUnit) || null
+          : null,
       pantryStaple: promptPantryStaple,
     });
     setSaving(false);
     if (saved) {
-      onChange("libraryId", saved.id);
+      applyLibraryMatch(saved, ingredient.quantity);
       setShowSavePrompt(false);
     }
   }
@@ -1812,7 +2202,7 @@ function IngredientRow({
               >
                 <span className="text-stone-800 truncate">{s.name}</span>
                 <span className="text-stone-400 text-xs whitespace-nowrap">
-                  {s.caloriesPerUnit} cal/{s.unit}
+                  {libraryIngredientSummary(s)}
                 </span>
               </button>
             ))}
@@ -1831,7 +2221,7 @@ function IngredientRow({
       />
       <select
         value={ingredient.unit}
-        onChange={(e) => onChange("unit", e.target.value)}
+        onChange={(e) => handleUnitChange(e.target.value)}
         title="Unit"
         className="col-span-1 sm:col-span-1 px-1.5 py-3 sm:px-1 sm:py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-xs focus:outline-none focus:ring-2 focus:ring-emerald-700"
       >
@@ -1968,40 +2358,77 @@ function IngredientRow({
       {showSavePrompt && (
         <div className="col-span-2 sm:col-span-12 p-3 sm:p-2.5 rounded-lg border border-emerald-200 bg-emerald-50 text-sm sm:text-xs space-y-2">
           <p className="text-stone-700">Save “{trimmedName}” to your ingredient library?</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-1.5">
-            <select
-              value={promptUnit}
-              onChange={(e) => setPromptUnit(e.target.value)}
-              className="px-2 py-2 sm:px-1.5 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => setPromptBaseUnit("grams")}
+              className={`flex-1 px-2 py-1.5 rounded border text-sm sm:text-xs font-medium ${
+                promptBaseUnit === "grams"
+                  ? "bg-stone-800 text-amber-50 border-stone-800"
+                  : "border-stone-200 text-stone-600 bg-white"
+              }`}
             >
-              {UNITS.map((u) => (
-                <option key={u} value={u}>
-                  {u}
-                </option>
-              ))}
-            </select>
+              By weight/volume (grams)
+            </button>
+            <button
+              type="button"
+              onClick={() => setPromptBaseUnit("count")}
+              className={`flex-1 px-2 py-1.5 rounded border text-sm sm:text-xs font-medium ${
+                promptBaseUnit === "count"
+                  ? "bg-stone-800 text-amber-50 border-stone-800"
+                  : "border-stone-200 text-stone-600 bg-white"
+              }`}
+            >
+              By item (count)
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:gap-1.5">
             <input
               type="number"
               value={promptCalories}
               onChange={(e) => setPromptCalories(e.target.value)}
-              placeholder="Cal/unit"
+              placeholder={promptBaseUnit === "grams" ? "Cal/100g" : "Cal/item"}
               className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             />
             <input
               type="number"
               value={promptProtein}
               onChange={(e) => setPromptProtein(e.target.value)}
-              placeholder="Protein/unit"
+              placeholder={promptBaseUnit === "grams" ? "Protein/100g" : "Protein/item"}
               className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             />
             <input
               type="number"
               value={promptFiber}
               onChange={(e) => setPromptFiber(e.target.value)}
-              placeholder="Fiber/unit"
+              placeholder={promptBaseUnit === "grams" ? "Fiber/100g" : "Fiber/item"}
               className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
             />
           </div>
+          {promptBaseUnit === "grams" && (
+            <div className="grid grid-cols-2 gap-2 sm:gap-1.5">
+              <select
+                value={promptReferenceUnit}
+                onChange={(e) => setPromptReferenceUnit(e.target.value as VolumeUnit | "")}
+                className="px-2 py-2 sm:px-1.5 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs"
+              >
+                <option value="">No volume conversion</option>
+                {VOLUME_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    Convert {u}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={promptGramsPerReferenceUnit}
+                onChange={(e) => setPromptGramsPerReferenceUnit(e.target.value)}
+                placeholder={promptReferenceUnit ? `Grams per ${promptReferenceUnit}` : "Grams per —"}
+                disabled={!promptReferenceUnit}
+                className="px-2.5 py-2 sm:px-2 sm:py-1 rounded border border-stone-200 bg-white text-sm sm:text-xs disabled:opacity-40"
+              />
+            </div>
+          )}
           <label className="flex items-center gap-1.5 text-stone-600">
             <input
               type="checkbox"
@@ -2466,10 +2893,12 @@ function ExtrasModal({
   const total = extras.reduce((sum, e) => sum + e.calories, 0);
 
   function selectSuggestion(lib: LibraryIngredient) {
+    const targetUnit = isConvertibleUnit(lib, unit) ? unit : defaultUnitForLibraryIngredient(lib);
     const qty = parseFloat(quantity) || 1;
     setName(lib.name);
-    setUnit(lib.unit);
-    setCalories(String(Math.round(lib.caloriesPerUnit * qty * 100) / 100));
+    setUnit(targetUnit);
+    const macros = libraryIngredientMacros(lib, qty, targetUnit);
+    if (macros) setCalories(String(Math.round(macros.calories * 100) / 100));
     setShowSuggestions(false);
   }
 
@@ -2570,7 +2999,7 @@ function ExtrasModal({
                     >
                       <span className="text-stone-800 truncate">{s.name}</span>
                       <span className="text-stone-400 text-xs whitespace-nowrap">
-                        {s.caloriesPerUnit} cal/{s.unit}
+                        {libraryIngredientSummary(s)}
                       </span>
                     </button>
                   ))}
@@ -2830,10 +3259,12 @@ function IngredientLibraryView({
   const [pantryOnly, setPantryOnly] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
-  const [formUnit, setFormUnit] = useState("g");
+  const [formBaseUnit, setFormBaseUnit] = useState<IngredientBaseUnit>("grams");
   const [formCalories, setFormCalories] = useState("");
   const [formProtein, setFormProtein] = useState("");
   const [formFiber, setFormFiber] = useState("");
+  const [formReferenceUnit, setFormReferenceUnit] = useState<VolumeUnit | "">("");
+  const [formGramsPerReferenceUnit, setFormGramsPerReferenceUnit] = useState("");
   const [formPantryStaple, setFormPantryStaple] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -2846,34 +3277,50 @@ function IngredientLibraryView({
   function startAdd() {
     setEditingId("new");
     setFormName("");
-    setFormUnit("g");
+    setFormBaseUnit("grams");
     setFormCalories("");
     setFormProtein("");
     setFormFiber("");
+    setFormReferenceUnit("");
+    setFormGramsPerReferenceUnit("");
     setFormPantryStaple(false);
   }
 
   function startEdit(ing: LibraryIngredient) {
     setEditingId(ing.id);
     setFormName(ing.name);
-    setFormUnit(ing.unit);
-    setFormCalories(String(ing.caloriesPerUnit));
-    setFormProtein(String(ing.proteinPerUnit));
-    setFormFiber(String(ing.fiberPerUnit));
+    setFormBaseUnit(ing.baseUnit);
+    // Displayed per 100g (grams) or per item (count) — the natural unit a
+    // nutrition label already gives you — even though the stored rate is
+    // always per gram internally.
+    const scale = ing.baseUnit === "grams" ? 100 : 1;
+    setFormCalories(String(ing.caloriesPerBaseUnit * scale));
+    setFormProtein(String(ing.proteinPerBaseUnit * scale));
+    setFormFiber(String(ing.fiberPerBaseUnit * scale));
+    setFormReferenceUnit(ing.referenceUnit ?? "");
+    setFormGramsPerReferenceUnit(
+      ing.gramsPerReferenceUnit != null ? String(ing.gramsPerReferenceUnit) : ""
+    );
     setFormPantryStaple(ing.pantryStaple);
   }
 
   async function submitForm() {
     const name = formName.trim();
-    const caloriesPerUnit = parseFloat(formCalories);
-    if (!name || Number.isNaN(caloriesPerUnit) || !editingId) return;
+    const enteredCalories = parseFloat(formCalories);
+    if (!name || Number.isNaN(enteredCalories) || !editingId) return;
     setSaving(true);
+    const scale = formBaseUnit === "grams" ? 100 : 1;
     const input: LibraryIngredientInput = {
       name,
-      unit: formUnit,
-      caloriesPerUnit,
-      proteinPerUnit: parseFloat(formProtein) || 0,
-      fiberPerUnit: parseFloat(formFiber) || 0,
+      baseUnit: formBaseUnit,
+      caloriesPerBaseUnit: enteredCalories / scale,
+      proteinPerBaseUnit: (parseFloat(formProtein) || 0) / scale,
+      fiberPerBaseUnit: (parseFloat(formFiber) || 0) / scale,
+      referenceUnit: formBaseUnit === "grams" && formReferenceUnit ? formReferenceUnit : null,
+      gramsPerReferenceUnit:
+        formBaseUnit === "grams" && formGramsPerReferenceUnit
+          ? parseFloat(formGramsPerReferenceUnit) || null
+          : null,
       pantryStaple: formPantryStaple,
     };
     const result = isAdding ? await onAdd(input) : await onUpdate(editingId, input);
@@ -2931,14 +3378,18 @@ function IngredientLibraryView({
           title="New ingredient"
           name={formName}
           setName={setFormName}
-          unit={formUnit}
-          setUnit={setFormUnit}
+          baseUnit={formBaseUnit}
+          setBaseUnit={setFormBaseUnit}
           calories={formCalories}
           setCalories={setFormCalories}
           protein={formProtein}
           setProtein={setFormProtein}
           fiber={formFiber}
           setFiber={setFormFiber}
+          referenceUnit={formReferenceUnit}
+          setReferenceUnit={setFormReferenceUnit}
+          gramsPerReferenceUnit={formGramsPerReferenceUnit}
+          setGramsPerReferenceUnit={setFormGramsPerReferenceUnit}
           pantryStaple={formPantryStaple}
           setPantryStaple={setFormPantryStaple}
           onCancel={() => setEditingId(null)}
@@ -2971,14 +3422,18 @@ function IngredientLibraryView({
                 title="Edit ingredient"
                 name={formName}
                 setName={setFormName}
-                unit={formUnit}
-                setUnit={setFormUnit}
+                baseUnit={formBaseUnit}
+                setBaseUnit={setFormBaseUnit}
                 calories={formCalories}
                 setCalories={setFormCalories}
                 protein={formProtein}
                 setProtein={setFormProtein}
                 fiber={formFiber}
                 setFiber={setFormFiber}
+                referenceUnit={formReferenceUnit}
+                setReferenceUnit={setFormReferenceUnit}
+                gramsPerReferenceUnit={formGramsPerReferenceUnit}
+                setGramsPerReferenceUnit={setFormGramsPerReferenceUnit}
                 pantryStaple={formPantryStaple}
                 setPantryStaple={setFormPantryStaple}
                 onCancel={() => setEditingId(null)}
@@ -3001,8 +3456,25 @@ function IngredientLibraryView({
                     )}
                   </p>
                   <p className="text-xs text-stone-400">
-                    {ing.caloriesPerUnit} cal · {ing.proteinPerUnit}g protein · {ing.fiberPerUnit}g fiber{" "}
-                    <span className="text-stone-300">/ {ing.unit}</span>
+                    {ing.baseUnit === "grams" ? (
+                      <>
+                        {Math.round(ing.caloriesPerBaseUnit * 100 * 100) / 100} cal ·{" "}
+                        {Math.round(ing.proteinPerBaseUnit * 100 * 100) / 100}g protein ·{" "}
+                        {Math.round(ing.fiberPerBaseUnit * 100 * 100) / 100}g fiber{" "}
+                        <span className="text-stone-300">/ 100g</span>
+                      </>
+                    ) : (
+                      <>
+                        {ing.caloriesPerBaseUnit} cal · {ing.proteinPerBaseUnit}g protein ·{" "}
+                        {ing.fiberPerBaseUnit}g fiber <span className="text-stone-300">/ item</span>
+                      </>
+                    )}
+                    {ing.referenceUnit && ing.gramsPerReferenceUnit && (
+                      <span className="text-stone-300">
+                        {" "}
+                        · {ing.gramsPerReferenceUnit}g/{ing.referenceUnit}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="flex gap-1.5">
@@ -3050,14 +3522,18 @@ function IngredientLibraryForm({
   title,
   name,
   setName,
-  unit,
-  setUnit,
+  baseUnit,
+  setBaseUnit,
   calories,
   setCalories,
   protein,
   setProtein,
   fiber,
   setFiber,
+  referenceUnit,
+  setReferenceUnit,
+  gramsPerReferenceUnit,
+  setGramsPerReferenceUnit,
   pantryStaple,
   setPantryStaple,
   onCancel,
@@ -3068,14 +3544,18 @@ function IngredientLibraryForm({
   title: string;
   name: string;
   setName: (v: string) => void;
-  unit: string;
-  setUnit: (v: string) => void;
+  baseUnit: IngredientBaseUnit;
+  setBaseUnit: (v: IngredientBaseUnit) => void;
   calories: string;
   setCalories: (v: string) => void;
   protein: string;
   setProtein: (v: string) => void;
   fiber: string;
   setFiber: (v: string) => void;
+  referenceUnit: VolumeUnit | "";
+  setReferenceUnit: (v: VolumeUnit | "") => void;
+  gramsPerReferenceUnit: string;
+  setGramsPerReferenceUnit: (v: string) => void;
   pantryStaple: boolean;
   setPantryStaple: (v: boolean) => void;
   onCancel: () => void;
@@ -3083,51 +3563,93 @@ function IngredientLibraryForm({
   saving: boolean;
   inline?: boolean;
 }) {
+  const rateSuffix = baseUnit === "grams" ? "100g" : "item";
   return (
     <div className={inline ? "p-4 bg-emerald-50" : "bg-amber-50 border border-stone-200 rounded-2xl p-4 mb-4"}>
       <p className="text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">{title}</p>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-2">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Ingredient name"
-          className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
-        />
-        <select
-          value={unit}
-          onChange={(e) => setUnit(e.target.value)}
-          className="px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Ingredient name"
+        className="w-full px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700 mb-2"
+      />
+      <div className="flex gap-1.5 mb-2">
+        <button
+          type="button"
+          onClick={() => setBaseUnit("grams")}
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${
+            baseUnit === "grams" ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600 bg-white"
+          }`}
         >
-          {UNITS.map((u) => (
-            <option key={u} value={u}>
-              {u}
-            </option>
-          ))}
-        </select>
+          By weight/volume (grams)
+        </button>
+        <button
+          type="button"
+          onClick={() => setBaseUnit("count")}
+          className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium border ${
+            baseUnit === "count" ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600 bg-white"
+          }`}
+        >
+          By item (count)
+        </button>
       </div>
+      <p className="text-[11px] text-stone-400 mb-2">
+        {baseUnit === "grams"
+          ? "For anything measured by weight or volume — produce, flour, oil, spices. Recipes can enter it in grams or, with a conversion below, cups/tbsp/tsp too."
+          : "For discrete items with no natural weight — an egg, a can, a clove."}
+      </p>
       <div className="grid grid-cols-3 gap-2 mb-3">
         <input
           type="number"
           value={calories}
           onChange={(e) => setCalories(e.target.value)}
-          placeholder="Cal/unit"
+          placeholder={`Cal/${rateSuffix}`}
           className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <input
           type="number"
           value={protein}
           onChange={(e) => setProtein(e.target.value)}
-          placeholder="Protein/unit (g)"
+          placeholder={`Protein/${rateSuffix}`}
           className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <input
           type="number"
           value={fiber}
           onChange={(e) => setFiber(e.target.value)}
-          placeholder="Fiber/unit (g)"
+          placeholder={`Fiber/${rateSuffix}`}
           className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
       </div>
+      {baseUnit === "grams" && (
+        <div className="mb-3">
+          <label className="text-[10px] text-stone-400 uppercase tracking-wide">
+            Volume conversion (optional)
+          </label>
+          <div className="grid grid-cols-2 gap-2 mt-1">
+            <select
+              value={referenceUnit}
+              onChange={(e) => setReferenceUnit(e.target.value as VolumeUnit | "")}
+              className="px-1.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+            >
+              <option value="">No conversion</option>
+              {VOLUME_UNITS.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number"
+              value={gramsPerReferenceUnit}
+              onChange={(e) => setGramsPerReferenceUnit(e.target.value)}
+              placeholder={referenceUnit ? `Grams per ${referenceUnit}` : "Grams per —"}
+              disabled={!referenceUnit}
+              className="px-2.5 py-2 rounded-lg border border-stone-200 bg-white text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700 disabled:opacity-40"
+            />
+          </div>
+        </div>
+      )}
       <label className="flex items-center gap-1.5 text-sm text-stone-600 mb-3">
         <input
           type="checkbox"

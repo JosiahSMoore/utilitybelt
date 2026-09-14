@@ -37,15 +37,41 @@ export type Ingredient = {
   isSectionHeader?: boolean;
 };
 
-// A shared ingredient library entry. The *PerUnit fields are RATES — the
-// amount for one unit of `unit` — not totals, unlike Ingredient's fields.
+// "grams": caloriesPerBaseUnit etc. are rates PER GRAM — the canonical
+// model for anything measured by weight or volume (produce, flour, oil,
+// spices...), since grams is the one unit every other weight/volume unit
+// converts to via a fixed, ingredient-independent ratio. "count": rates are
+// PER ITEM (a whole egg, a can, a clove) — these aren't naturally weighed,
+// so forcing a grams conversion would add friction without solving
+// anything real; count stays canonical for its own sake.
+export type IngredientBaseUnit = "grams" | "count";
+
+// The volume units a library ingredient's reference conversion can be
+// expressed in. Ratios between these (1 tbsp = 3 tsp, 1 cup = 48 tsp, etc.)
+// are fixed and universal — they live in lib/constants.ts as a shared
+// table, not per-ingredient — only the density (grams per one of these)
+// actually varies by ingredient.
+export type VolumeUnit = "tsp" | "tbsp" | "cup" | "ml" | "l";
+
+// A shared ingredient library entry. caloriesPerBaseUnit etc. are RATES —
+// per gram or per item depending on baseUnit — not totals, unlike
+// Ingredient's fields.
 export type LibraryIngredient = {
   id: string;
   name: string;
-  unit: string;
-  caloriesPerUnit: number;
-  proteinPerUnit: number;
-  fiberPerUnit: number;
+  baseUnit: IngredientBaseUnit;
+  caloriesPerBaseUnit: number;
+  proteinPerBaseUnit: number;
+  fiberPerBaseUnit: number;
+  // Only meaningful when baseUnit is "grams" and this ingredient is
+  // commonly measured by volume in recipes (flour, sugar, oil, spices...).
+  // Lets a recipe enter "2 cups" and still get the right grams/macros
+  // without a second, duplicate library entry for "the volume version" of
+  // the same ingredient. null/absent means no volume conversion is known
+  // for this ingredient yet — recipes can still enter it in grams (or any
+  // weight unit) directly.
+  referenceUnit?: VolumeUnit | null;
+  gramsPerReferenceUnit?: number | null;
   // Pantry staples (salt, oil, spices you always have) get skipped when
   // building the shopping list from the meal plan. This is the only place
   // it's set — edited here or when first saving a new ingredient to the
@@ -102,4 +128,48 @@ export type DailyExtra = {
   date: string;
   name: string;
   calories: number;
+};
+
+// ---------- Recipe import (JSON upload) ----------
+//
+// The shape expected from the "Import Recipe" screen's .json upload,
+// produced by the Claude Skill (or hand-written). Whoever generates this
+// file has already matched each ingredient against the current library
+// (fetched from /api/ingredients-feed) and computed the recipe's own
+// quantity/unit/calories/protein/fiber snapshot values itself — the
+// importer's job is just to create any brand-new library ingredients,
+// resolve them to real ids, and save the recipe. It does not recompute
+// macros from scratch.
+
+export type ImportIngredient = Omit<Ingredient, "libraryId"> & {
+  // Either a real, existing library id (already matched) or a reference
+  // into this payload's own newIngredients array (brand new) — never both,
+  // and section headers have neither.
+  libraryId?: string | null;
+  newIngredientRef?: string | null;
+};
+
+export type NewLibraryIngredientInput = {
+  // A short local key this payload's ImportIngredient rows point back to —
+  // never a real id, just scoped to this one import.
+  ref: string;
+  name: string;
+  baseUnit: IngredientBaseUnit;
+  caloriesPerBaseUnit: number;
+  proteinPerBaseUnit: number;
+  fiberPerBaseUnit: number;
+  referenceUnit?: VolumeUnit | null;
+  gramsPerReferenceUnit?: number | null;
+  pantryStaple?: boolean;
+};
+
+export type RecipeImportPayload = {
+  recipe: {
+    name: string;
+    category: string;
+    servings: number | string;
+    instructions: string;
+    ingredients: ImportIngredient[];
+  };
+  newIngredients: NewLibraryIngredientInput[];
 };

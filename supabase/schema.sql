@@ -42,30 +42,65 @@ alter table shopping_list_items add column if not exists source text not null de
 alter table shopping_list_items drop constraint if exists shopping_list_items_source_check;
 alter table shopping_list_items add constraint shopping_list_items_source_check check (source in ('recipe', 'manual'));
 
--- Shared ingredient library: a name, a default unit, and calories PER ONE
--- UNIT of that default unit (a rate, e.g. calories per gram) — not a total.
--- Each recipe's own ingredient line (still stored in recipes.ingredients
--- jsonb, unchanged) can optionally carry a "libraryId" pointing here, but
--- always keeps its own quantity/unit/calories so it can be overridden
--- per recipe without touching the shared rate.
+-- Shared ingredient library, canonical in grams. "grams" base_unit
+-- ingredients (produce, flour, oil, spices — anything commonly measured by
+-- weight OR volume) store rates PER GRAM; "count" base_unit ingredients
+-- (eggs, cans, cloves — discrete items with no natural weight) store rates
+-- PER ITEM. Grams is the one unit every weight/volume unit converts to via
+-- a fixed ratio (see lib/constants.ts) — storing rates any other way would
+-- mean the same ingredient could get saved multiple times under different
+-- units. Each recipe's own ingredient line (still stored in
+-- recipes.ingredients jsonb, unchanged) can optionally carry a "libraryId"
+-- pointing here, but always keeps its own quantity/unit/calories as a
+-- permanent, independently-editable snapshot rather than something derived
+-- live from this table.
 create table if not exists ingredients (
   id uuid primary key default gen_random_uuid(),
   name text not null,
-  unit text not null default 'g',
-  calories_per_unit numeric not null default 0,
+  base_unit text not null default 'grams' check (base_unit in ('grams', 'count')),
+  calories_per_base_unit numeric not null default 0,
+  protein_per_base_unit numeric not null default 0,
+  fiber_per_base_unit numeric not null default 0,
+  -- Only meaningful when base_unit = 'grams' and this ingredient is
+  -- commonly measured by volume — its density, as "N grams per one
+  -- reference_unit" (e.g. 8 grams per tbsp for cornstarch). Lets a recipe
+  -- enter a volume unit and still get accurate grams/macros without a
+  -- second, duplicate library entry for "the volume version".
+  reference_unit text check (reference_unit in ('tsp', 'tbsp', 'cup', 'ml', 'l')),
+  grams_per_reference_unit numeric,
+  pantry_staple boolean not null default false,
   created_at timestamptz not null default now()
 );
 
--- Added after the table's initial creation — "add column if not exists" so
--- this stays safe to run against a project that already has the table.
-alter table ingredients add column if not exists protein_per_unit numeric not null default 0;
-alter table ingredients add column if not exists fiber_per_unit numeric not null default 0;
--- Default for whether this ingredient is a pantry staple (salt, oil, etc.)
--- that shouldn't show up on the shopping list every time. Each recipe's own
--- ingredient line can still override this per use.
-alter table ingredients add column if not exists pantry_staple boolean not null default false;
-
 create unique index if not exists ingredients_name_lower_idx on ingredients (lower(name));
+
+-- Rebuilt to the grams-canonical model above. The old shape (a single
+-- arbitrary unit + a rate for that one unit) predates this and doesn't map
+-- cleanly onto it, so existing rows are wiped intentionally rather than
+-- migrated — recipes are unaffected, since their ingredient lines are
+-- independent snapshots, not live-linked to this table (see comment
+-- above); a stale libraryId just means no match, same as any ingredient
+-- line that was never linked. Guarded so this only ever runs once, against
+-- a database still on the old shape.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_name = 'ingredients' and column_name = 'unit'
+  ) then
+    truncate table ingredients;
+    alter table ingredients drop column unit;
+    alter table ingredients drop column calories_per_unit;
+    alter table ingredients drop column protein_per_unit;
+    alter table ingredients drop column fiber_per_unit;
+    alter table ingredients add column if not exists base_unit text not null default 'grams' check (base_unit in ('grams', 'count'));
+    alter table ingredients add column if not exists calories_per_base_unit numeric not null default 0;
+    alter table ingredients add column if not exists protein_per_base_unit numeric not null default 0;
+    alter table ingredients add column if not exists fiber_per_base_unit numeric not null default 0;
+    alter table ingredients add column if not exists reference_unit text check (reference_unit in ('tsp', 'tbsp', 'cup', 'ml', 'l'));
+    alter table ingredients add column if not exists grams_per_reference_unit numeric;
+  end if;
+end $$;
 
 -- A slot's meal is either a real recipe (recipe_id) or a one-off custom
 -- meal (custom_meal) typed in on the spot — never both. Custom meals are

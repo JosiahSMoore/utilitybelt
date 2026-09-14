@@ -4,10 +4,13 @@ import { createAdminClient } from "@/lib/supabase/server";
 import type {
   CustomMeal,
   DailyExtra,
+  IngredientBaseUnit,
   LibraryIngredient,
   MealSlot,
   Recipe,
+  RecipeImportPayload,
   ShoppingItem,
+  VolumeUnit,
 } from "@/lib/types";
 
 type RecipeRow = {
@@ -191,19 +194,23 @@ export async function deleteShoppingItemsAction(ids: string[]): Promise<void> {
 type IngredientLibraryRow = {
   id: string;
   name: string;
-  unit: string;
-  calories_per_unit: number | string;
-  protein_per_unit: number | string;
-  fiber_per_unit: number | string;
+  base_unit: IngredientBaseUnit;
+  calories_per_base_unit: number | string;
+  protein_per_base_unit: number | string;
+  fiber_per_base_unit: number | string;
+  reference_unit: VolumeUnit | null;
+  grams_per_reference_unit: number | string | null;
   pantry_staple: boolean;
 };
 
 type LibraryIngredientInput = {
   name: string;
-  unit: string;
-  caloriesPerUnit: number;
-  proteinPerUnit: number;
-  fiberPerUnit: number;
+  baseUnit: IngredientBaseUnit;
+  caloriesPerBaseUnit: number;
+  proteinPerBaseUnit: number;
+  fiberPerBaseUnit: number;
+  referenceUnit?: VolumeUnit | null;
+  gramsPerReferenceUnit?: number | null;
   pantryStaple: boolean;
 };
 
@@ -211,11 +218,26 @@ function rowToLibraryIngredient(row: IngredientLibraryRow): LibraryIngredient {
   return {
     id: row.id,
     name: row.name,
-    unit: row.unit,
-    caloriesPerUnit: Number(row.calories_per_unit) || 0,
-    proteinPerUnit: Number(row.protein_per_unit) || 0,
-    fiberPerUnit: Number(row.fiber_per_unit) || 0,
+    baseUnit: row.base_unit,
+    caloriesPerBaseUnit: Number(row.calories_per_base_unit) || 0,
+    proteinPerBaseUnit: Number(row.protein_per_base_unit) || 0,
+    fiberPerBaseUnit: Number(row.fiber_per_base_unit) || 0,
+    referenceUnit: row.reference_unit,
+    gramsPerReferenceUnit:
+      row.grams_per_reference_unit === null ? null : Number(row.grams_per_reference_unit),
     pantryStaple: Boolean(row.pantry_staple),
+  };
+}
+
+function libraryIngredientPayload(input: LibraryIngredientInput) {
+  return {
+    base_unit: input.baseUnit,
+    calories_per_base_unit: input.caloriesPerBaseUnit,
+    protein_per_base_unit: input.proteinPerBaseUnit,
+    fiber_per_base_unit: input.fiberPerBaseUnit,
+    reference_unit: input.baseUnit === "grams" ? input.referenceUnit ?? null : null,
+    grams_per_reference_unit: input.baseUnit === "grams" ? input.gramsPerReferenceUnit ?? null : null,
+    pantry_staple: input.pantryStaple,
   };
 }
 
@@ -224,13 +246,7 @@ export async function saveLibraryIngredientAction(
 ): Promise<LibraryIngredient> {
   const supabase = createAdminClient();
   const name = input.name.trim();
-  const payload = {
-    unit: input.unit,
-    calories_per_unit: input.caloriesPerUnit,
-    protein_per_unit: input.proteinPerUnit,
-    fiber_per_unit: input.fiberPerUnit,
-    pantry_staple: input.pantryStaple,
-  };
+  const payload = libraryIngredientPayload(input);
 
   const { data: existing, error: findError } = await supabase
     .from("ingredients")
@@ -256,14 +272,7 @@ export async function updateLibraryIngredientAction(
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("ingredients")
-    .update({
-      name: input.name.trim(),
-      unit: input.unit,
-      calories_per_unit: input.caloriesPerUnit,
-      protein_per_unit: input.proteinPerUnit,
-      fiber_per_unit: input.fiberPerUnit,
-      pantry_staple: input.pantryStaple,
-    })
+    .update({ name: input.name.trim(), ...libraryIngredientPayload(input) })
     .eq("id", id)
     .select()
     .single<IngredientLibraryRow>();
@@ -276,6 +285,53 @@ export async function deleteLibraryIngredientAction(id: string): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase.from("ingredients").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// Imports a recipe produced by the Claude Skill (or hand-written) JSON
+// upload: creates any brand-new library ingredients first, resolves the
+// recipe's newIngredientRef placeholders to their real ids, then saves the
+// recipe — all in one call so the two can't end up half-done relative to
+// each other. Macro values on the recipe's own ingredient rows are used
+// exactly as provided; this does not recompute them (see RecipeImportPayload).
+export async function importRecipeAction(
+  payload: RecipeImportPayload
+): Promise<{ recipe: Recipe; newIngredients: LibraryIngredient[] }> {
+  const supabase = createAdminClient();
+
+  const refToId = new Map<string, string>();
+  const createdIngredients: LibraryIngredient[] = [];
+
+  for (const newIng of payload.newIngredients) {
+    const saved = await saveLibraryIngredientAction({
+      name: newIng.name,
+      baseUnit: newIng.baseUnit,
+      caloriesPerBaseUnit: newIng.caloriesPerBaseUnit,
+      proteinPerBaseUnit: newIng.proteinPerBaseUnit,
+      fiberPerBaseUnit: newIng.fiberPerBaseUnit,
+      referenceUnit: newIng.referenceUnit,
+      gramsPerReferenceUnit: newIng.gramsPerReferenceUnit,
+      pantryStaple: newIng.pantryStaple ?? false,
+    });
+    refToId.set(newIng.ref, saved.id);
+    createdIngredients.push(saved);
+  }
+
+  const ingredients: Recipe["ingredients"] = payload.recipe.ingredients.map((ing) => {
+    const { newIngredientRef, ...rest } = ing;
+    const resolvedLibraryId = newIngredientRef ? refToId.get(newIngredientRef) ?? null : ing.libraryId ?? null;
+    return { ...rest, libraryId: resolvedLibraryId };
+  });
+
+  const recipe = await saveRecipeAction({
+    id: "",
+    name: payload.recipe.name,
+    category: payload.recipe.category,
+    servings: payload.recipe.servings,
+    instructions: payload.recipe.instructions,
+    ingredients,
+  });
+
+  return { recipe, newIngredients: createdIngredients };
 }
 
 type DailyExtraRow = {

@@ -1,4 +1,5 @@
-import type { Ingredient, Recipe } from "./types";
+import { VOLUME_TO_ML, WEIGHT_TO_GRAMS } from "./constants";
+import type { Ingredient, LibraryIngredient, Recipe, VolumeUnit } from "./types";
 
 export function generateId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -14,6 +15,76 @@ export function scaleQuantityDisplay(quantity: string, multiplier: number): stri
   if (Number.isNaN(num)) return quantity;
   const scaled = Math.round(num * multiplier * 100) / 100;
   return String(scaled);
+}
+
+// Converts a quantity+unit into grams for a specific library ingredient.
+// Weight units (g/oz/lb/kg) convert via a fixed universal ratio, no
+// per-ingredient data needed. Volume units (tsp/tbsp/cup/ml/l) need that
+// ingredient's own density — derived from its one stored
+// (referenceUnit, gramsPerReferenceUnit) pair — since a tablespoon of
+// cornstarch and a tablespoon of oil weigh very different amounts. Returns
+// null when the unit can't be converted (a count-style unit, or a volume
+// unit on an ingredient with no known density yet) — callers should treat
+// that as "can't autofill from this", not an error.
+export function gramsForQuantity(
+  ingredient: LibraryIngredient,
+  quantity: number,
+  unit: string
+): number | null {
+  if (unit in WEIGHT_TO_GRAMS) {
+    return quantity * WEIGHT_TO_GRAMS[unit];
+  }
+  if (unit in VOLUME_TO_ML) {
+    if (!ingredient.referenceUnit || !ingredient.gramsPerReferenceUnit) return null;
+    const gramsPerMl = ingredient.gramsPerReferenceUnit / VOLUME_TO_ML[ingredient.referenceUnit];
+    return quantity * VOLUME_TO_ML[unit as VolumeUnit] * gramsPerMl;
+  }
+  return null;
+}
+
+// The suggested calories/protein/fiber for a given quantity+unit of a
+// library ingredient — the autofill shown when linking a recipe row (or a
+// daily extra) to the library. Always just a starting point: the recipe's
+// own values are a separate, freely-editable snapshot from here on, same
+// as any other ingredient row.
+export function libraryIngredientMacros(
+  ingredient: LibraryIngredient,
+  quantity: number,
+  unit: string
+): { calories: number; protein: number; fiber: number } | null {
+  if (ingredient.baseUnit === "count") {
+    if (unit in WEIGHT_TO_GRAMS || unit in VOLUME_TO_ML) return null;
+    return {
+      calories: quantity * ingredient.caloriesPerBaseUnit,
+      protein: quantity * ingredient.proteinPerBaseUnit,
+      fiber: quantity * ingredient.fiberPerBaseUnit,
+    };
+  }
+  const grams = gramsForQuantity(ingredient, quantity, unit);
+  if (grams === null) return null;
+  return {
+    calories: grams * ingredient.caloriesPerBaseUnit,
+    protein: grams * ingredient.proteinPerBaseUnit,
+    fiber: grams * ingredient.fiberPerBaseUnit,
+  };
+}
+
+// The unit to default a recipe row to when first linking it to a library
+// ingredient with no unit already chosen — its own reference unit if it has
+// one (the most natural unit for that specific ingredient), else grams or
+// a generic count.
+export function defaultUnitForLibraryIngredient(ingredient: LibraryIngredient): string {
+  if (ingredient.baseUnit === "count") return "count";
+  return ingredient.referenceUnit ?? "g";
+}
+
+// Whether `unit` is one this app knows how to convert to grams for a
+// "grams" library ingredient (a weight unit always; a volume unit only if
+// the ingredient has density info) — used to decide whether changing units
+// on a linked row should trigger an autofill rescale at all.
+export function isConvertibleUnit(ingredient: LibraryIngredient, unit: string): boolean {
+  if (ingredient.baseUnit === "count") return !(unit in WEIGHT_TO_GRAMS) && !(unit in VOLUME_TO_ML);
+  return gramsForQuantity(ingredient, 1, unit) !== null;
 }
 
 export function emptyIngredient(): Ingredient {
