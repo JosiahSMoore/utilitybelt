@@ -1,5 +1,6 @@
 "use server";
 
+import { generateId } from "@/lib/helpers";
 import { createAdminClient } from "@/lib/supabase/server";
 import type {
   CustomMeal,
@@ -316,10 +317,16 @@ export async function importRecipeAction(
     createdIngredients.push(saved);
   }
 
+  // Never trust the imported file's own "id" values as unique — they're
+  // written by an external Skill with no way to guarantee that, and a
+  // collision (seen in practice: multiple rows with id null) breaks React's
+  // key uniqueness once rendered. Every other way of creating an ingredient
+  // row in this app calls generateId() itself rather than accepting a
+  // caller-supplied id; imported rows get the same treatment here.
   const ingredients: Recipe["ingredients"] = payload.recipe.ingredients.map((ing) => {
     const { newIngredientRef, ...rest } = ing;
     const resolvedLibraryId = newIngredientRef ? refToId.get(newIngredientRef) ?? null : ing.libraryId ?? null;
-    return { ...rest, libraryId: resolvedLibraryId };
+    return { ...rest, id: generateId(), libraryId: resolvedLibraryId };
   });
 
   const recipe = await saveRecipeAction({

@@ -1492,16 +1492,16 @@ function ImportRecipeView({
                 {payload.recipe.ingredients.map((ing, idx) =>
                   ing.isSectionHeader ? (
                     <tr key={idx}>
-                      <td colSpan={4} className="pt-4 pb-1.5 first:pt-0">
+                      <td colSpan={4} className={idx === 0 ? "pt-0 pb-2" : "pt-6 pb-2"}>
                         {ing.name ? (
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide whitespace-nowrap">
                               {ing.name}
                             </span>
-                            <div className="flex-1 border-t border-stone-200" />
+                            <div className="flex-1 border-t-2 border-stone-300" />
                           </div>
                         ) : (
-                          <div className="border-t border-stone-200" />
+                          <div className="border-t-2 border-stone-300" />
                         )}
                       </td>
                     </tr>
@@ -1653,8 +1653,6 @@ function RecipeDetail({
   const { perServing } = recipeCalories(recipe);
   const { perServing: proteinPerServing } = recipeProtein(recipe);
   const { perServing: fiberPerServing } = recipeFiber(recipe);
-  const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
-  const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
   const steps = parseInstructionSteps(recipe.instructions);
   const baseServings = parseFloat(String(recipe.servings)) || 0;
   const scaledServings = Math.round(baseServings * multiplier * 10) / 10;
@@ -1732,29 +1730,35 @@ function RecipeDetail({
             <h2 className="font-display text-lg text-stone-900 mb-3">Ingredients</h2>
             <table className="w-full text-sm">
               <tbody>
-                {fixedIngredients.map((ing) =>
+                {recipe.ingredients.map((ing, idx) =>
                   ing.isSectionHeader ? (
                     <tr key={ing.id}>
-                      <td colSpan={2} className="pt-4 pb-1.5 first:pt-0">
+                      <td colSpan={2} className={idx === 0 ? "pt-0 pb-2" : "pt-6 pb-2"}>
                         {ing.name ? (
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide whitespace-nowrap">
                               {ing.name}
                             </span>
-                            <div className="flex-1 border-t border-stone-200" />
+                            <div className="flex-1 border-t-2 border-stone-300" />
                           </div>
                         ) : (
-                          <div className="border-t border-stone-200" />
+                          <div className="border-t-2 border-stone-300" />
                         )}
                       </td>
                     </tr>
                   ) : (
                     <tr key={ing.id} className="border-b border-stone-200 last:border-0">
                       <td className="py-2 text-stone-800">
-                        {ing.name}
-                        {ing.servingMode === "perServing" && (
-                          <span className="text-[10px] text-stone-400 ml-1.5">/serving</span>
-                        )}
+                        <span className="flex items-center gap-1.5">
+                          {ing.name}
+                          {ing.servingMode === "perServing" && (
+                            <span className="text-[10px] text-stone-400">/serving</span>
+                          )}
+                          {ing.isFlex && <SlidersHorizontal size={11} className="text-stone-400" />}
+                          {ing.isFlex && ing.flexDefault && (
+                            <Star size={11} className="text-amber-500 fill-amber-500" />
+                          )}
+                        </span>
                       </td>
                       <td className="py-2 text-stone-500 text-right whitespace-nowrap">
                         {scaleQuantityDisplay(ing.quantity, multiplier)} {ing.unit}
@@ -1765,35 +1769,15 @@ function RecipeDetail({
               </tbody>
             </table>
 
-            {flexIngredients.length > 0 && (
-              <div className="mt-5 pt-4 border-t border-dashed border-stone-300">
-                <h3 className="flex items-center gap-1.5 text-xs font-medium text-stone-500 uppercase tracking-wide mb-2">
-                  <SlidersHorizontal size={12} /> Flexible ingredients
-                </h3>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {flexIngredients.map((ing) => (
-                      <tr key={ing.id} className="border-b border-stone-200 last:border-0">
-                        <td className="py-2 text-stone-800">
-                          <span className="flex items-center gap-1.5">
-                            {ing.name}
-                            {ing.flexDefault && (
-                              <Star size={11} className="text-amber-500 fill-amber-500" />
-                            )}
-                          </span>
-                        </td>
-                        <td className="py-2 text-stone-500 text-right whitespace-nowrap">
-                          {scaleQuantityDisplay(ing.quantity, multiplier)} {ing.unit}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p className="text-[11px] text-stone-400 mt-2 flex items-center gap-1">
-                  <Star size={10} className="text-amber-500 fill-amber-500" /> = included by default when
-                  scheduled
-                </p>
-              </div>
+            {hasFlexIngredients(recipe) && (
+              <p className="text-[11px] text-stone-400 mt-3 flex items-center gap-3 flex-wrap">
+                <span className="flex items-center gap-1">
+                  <SlidersHorizontal size={10} className="text-stone-400" /> flexible
+                </span>
+                <span className="flex items-center gap-1">
+                  <Star size={10} className="text-amber-500 fill-amber-500" /> its default option
+                </span>
+              </p>
             )}
           </div>
           <div className="md:col-span-2">
@@ -1863,13 +1847,6 @@ function RecipeForm({
     setRecipe((r) => ({ ...r, ingredients: [...r.ingredients, emptyIngredient()] }));
   }
 
-  function addFlexIngredientRow() {
-    setRecipe((r) => ({
-      ...r,
-      ingredients: [...r.ingredients, { ...emptyIngredient(), isFlex: true, flexDefault: false }],
-    }));
-  }
-
   function addSectionHeader() {
     setRecipe((r) => ({ ...r, ingredients: [...r.ingredients, emptySectionHeader()] }));
   }
@@ -1882,16 +1859,14 @@ function RecipeForm({
     if (!recipe.name.trim()) return;
     // Section headers are kept regardless of title (blank is a valid,
     // untitled divider) — only blank-named real ingredient rows get dropped.
+    // Order is preserved as-is now that flex ingredients can live inside a
+    // section alongside fixed ones, rather than always being moved to the end.
     const cleanedIngredients = recipe.ingredients.filter((i) => i.isSectionHeader || i.name.trim());
-    const cleanedFixed = cleanedIngredients.filter((i) => !i.isFlex);
-    const cleanedFlex = cleanedIngredients.filter((i) => i.isFlex);
-    const finalFixed = cleanedFixed.length === 0 ? [emptyIngredient()] : cleanedFixed;
-    onSave({ ...recipe, ingredients: [...finalFixed, ...cleanedFlex] });
+    const hasRealIngredient = cleanedIngredients.some((i) => !i.isSectionHeader);
+    onSave({ ...recipe, ingredients: hasRealIngredient ? cleanedIngredients : [emptyIngredient()] });
   }
 
-  const fixedIngredients = recipe.ingredients.filter((i) => !i.isFlex);
-  const flexIngredients = recipe.ingredients.filter((i) => i.isFlex);
-  const realFixedCount = fixedIngredients.filter((i) => !i.isSectionHeader).length;
+  const realIngredientCount = recipe.ingredients.filter((i) => !i.isSectionHeader).length;
 
   const { perServing } = recipeCalories(recipe);
   const { perServing: proteinPerServing } = recipeProtein(recipe);
@@ -1957,9 +1932,14 @@ function RecipeForm({
           </div>
         </div>
 
+        <p className="text-[11px] text-stone-400 mb-2 flex items-center gap-1">
+          <SlidersHorizontal size={10} /> on a row marks it flexible — a swappable option grouped with
+          whatever section it's in, instead of always fixed.
+        </p>
+
         <div className="space-y-2 mb-3">
           <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-            <span className="col-span-5">Ingredient</span>
+            <span className="col-span-4">Ingredient</span>
             <span className="col-span-1">Qty</span>
             <span className="col-span-1">Unit</span>
             <span className="col-span-4 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
@@ -1967,9 +1947,15 @@ function RecipeForm({
               <Dumbbell size={10} />
               <Wheat size={10} />
             </span>
-            <span className="col-span-1"></span>
+            <span
+              className="col-span-2 flex items-center justify-end gap-2"
+              title="Flexible · included by default · delete"
+            >
+              <SlidersHorizontal size={10} />
+              <Star size={10} />
+            </span>
           </div>
-          {fixedIngredients.map((ing) =>
+          {recipe.ingredients.map((ing) =>
             ing.isSectionHeader ? (
               <SectionHeaderEditRow
                 key={ing.id}
@@ -1984,7 +1970,7 @@ function RecipeForm({
                 library={ingredientLibrary}
                 onChange={(field, value) => updateIngredient(ing.id, field, value)}
                 onRemove={() => removeIngredientRow(ing.id)}
-                disableRemove={realFixedCount === 1}
+                disableRemove={realIngredientCount === 1}
                 onSaveNewLibraryIngredient={onSaveLibraryIngredient}
               />
             )
@@ -2003,66 +1989,6 @@ function RecipeForm({
             Add section
           </button>
         </div>
-
-        {flexIngredients.length > 0 ? (
-          <>
-            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-              <label className="text-xs font-medium text-stone-500 uppercase tracking-wide">
-                Flexible ingredients
-              </label>
-              <span className="text-[11px] text-stone-400">
-                Swappable options — check "Default" for what's used unless you modify it
-              </span>
-            </div>
-            <div className="space-y-2 mb-3">
-              <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
-                <span className="col-span-4">Ingredient</span>
-                <span className="col-span-1">Qty</span>
-                <span className="col-span-1">Unit</span>
-                <span className="col-span-4 text-center flex items-center justify-center gap-1" title="Calories · Protein · Fiber · whole recipe vs. per serving (click a row's chip to edit)">
-                  <Flame size={10} />
-                  <Dumbbell size={10} />
-                  <Wheat size={10} />
-                </span>
-                <span
-                  className="col-span-2 flex items-center justify-end gap-2"
-                  title="Included by default · delete"
-                >
-                  <Star size={11} />
-                </span>
-              </div>
-              {flexIngredients.map((ing) => (
-                <IngredientRow
-                  key={ing.id}
-                  ingredient={ing}
-                  library={ingredientLibrary}
-                  onChange={(field, value) => updateIngredient(ing.id, field, value)}
-                  onRemove={() => removeIngredientRow(ing.id)}
-                  disableRemove={false}
-                  onSaveNewLibraryIngredient={onSaveLibraryIngredient}
-                  isFlexRow
-                />
-              ))}
-            </div>
-            <button
-              onClick={addFlexIngredientRow}
-              className="flex items-center gap-1.5 py-2 sm:py-0 text-base sm:text-sm text-emerald-800 font-medium mb-6 hover:underline"
-            >
-              <Plus size={16} className="sm:hidden" />
-              <Plus size={14} className="hidden sm:block" />
-              Add flexible ingredient
-            </button>
-          </>
-        ) : (
-          <button
-            onClick={addFlexIngredientRow}
-            className="flex items-center gap-1.5 text-base sm:text-sm text-stone-500 font-medium mb-6 border border-dashed border-stone-300 rounded-full px-4 py-2.5 sm:px-3.5 sm:py-1.5 hover:border-stone-400 hover:text-stone-700"
-          >
-            <Plus size={16} className="sm:hidden" />
-            <Plus size={14} className="hidden sm:block" />
-            Add flexible ingredients
-          </button>
-        )}
 
         <label className="text-sm sm:text-xs font-medium text-stone-500 uppercase tracking-wide">Instructions</label>
         <textarea
@@ -2132,7 +2058,6 @@ function IngredientRow({
   onRemove,
   disableRemove,
   onSaveNewLibraryIngredient,
-  isFlexRow,
 }: {
   ingredient: Ingredient;
   library: LibraryIngredient[];
@@ -2140,7 +2065,6 @@ function IngredientRow({
   onRemove: () => void;
   disableRemove: boolean;
   onSaveNewLibraryIngredient: (input: LibraryIngredientInput) => Promise<LibraryIngredient | null>;
-  isFlexRow?: boolean;
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showSavePrompt, setShowSavePrompt] = useState(false);
@@ -2303,6 +2227,12 @@ function IngredientRow({
     }
   }
 
+  function toggleFlex() {
+    const next = !ingredient.isFlex;
+    onChange("isFlex", next);
+    if (!next) onChange("flexDefault", false);
+  }
+
   function dismissSavePrompt() {
     setDismissedName(trimmedName);
     setShowSavePrompt(false);
@@ -2310,7 +2240,7 @@ function IngredientRow({
 
   return (
     <div className="grid grid-cols-4 sm:grid-cols-12 gap-2 items-start">
-      <div className={`col-span-4 ${isFlexRow ? "sm:col-span-4" : "sm:col-span-5"} relative`}>
+      <div className="col-span-4 sm:col-span-4 relative">
         <input
           value={ingredient.name}
           onChange={(e) => {
@@ -2462,10 +2392,18 @@ function IngredientRow({
           </div>
         )}
       </div>
-      <div
-        className={`col-span-4 ${isFlexRow ? "sm:col-span-2" : "sm:col-span-1"} flex items-center justify-end gap-2`}
-      >
-        {isFlexRow && (
+      <div className="col-span-4 sm:col-span-2 flex items-center justify-end gap-1">
+        <button
+          type="button"
+          onClick={toggleFlex}
+          title={ingredient.isFlex ? "Flexible ingredient (click to make fixed)" : "Make this a flexible ingredient"}
+          className={`h-11 sm:h-9 w-8 flex-shrink-0 flex items-center justify-center rounded-full ${
+            ingredient.isFlex ? "text-emerald-700 bg-emerald-50" : "text-stone-300 hover:text-stone-500"
+          }`}
+        >
+          <SlidersHorizontal size={15} />
+        </button>
+        {ingredient.isFlex && (
           <button
             type="button"
             onClick={() => onChange("flexDefault", !ingredient.flexDefault)}
@@ -2474,7 +2412,7 @@ function IngredientRow({
                 ? "Included by default when scheduled (click to change)"
                 : "Include by default when scheduled"
             }
-            className="h-11 sm:h-9 px-1 flex items-center justify-center"
+            className="h-11 sm:h-9 px-1 flex items-center justify-center flex-shrink-0"
           >
             <Star
               size={17}
@@ -3940,12 +3878,12 @@ function CookingModeView({
 }) {
   const steps = useMemo(() => parseInstructionSteps(recipe.instructions), [recipe.instructions]);
   const sections = useMemo(() => {
-    const groups = groupIngredientsBySection(recipe.ingredients.filter((i) => !i.isFlex));
-    const activeFlex = recipe.ingredients.filter((i) => i.isFlex && flexIds.includes(i.id));
-    if (activeFlex.length > 0) {
-      groups.push({ key: "__flex", title: "Flexible ingredients", items: activeFlex });
-    }
-    return groups;
+    // Flex ingredients now live wherever they were placed in the recipe (a
+    // section, or the top-level list) rather than always being pulled into
+    // a separate trailing group — only the ones actually active for this
+    // cooking session are included, same as before.
+    const cookingIngredients = recipe.ingredients.filter((i) => !i.isFlex || flexIds.includes(i.id));
+    return groupIngredientsBySection(cookingIngredients);
   }, [recipe.ingredients, flexIds]);
 
   const initial = useMemo(() => loadCookingState(sessionKey), [sessionKey]);
