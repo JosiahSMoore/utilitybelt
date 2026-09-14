@@ -1300,6 +1300,18 @@ function ImportRecipeView({
     reader.readAsText(file);
   }
 
+  function toggleNewIngredientPantryStaple(ref: string) {
+    setPayload((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        newIngredients: prev.newIngredients.map((n) =>
+          n.ref === ref ? { ...n, pantryStaple: !n.pantryStaple } : n
+        ),
+      };
+    });
+  }
+
   async function confirmImport() {
     if (!payload) return;
     setImporting(true);
@@ -1426,15 +1438,26 @@ function ImportRecipeView({
                     key={n.ref}
                     className="text-sm text-stone-700 flex items-center justify-between gap-2 bg-white/60 rounded-lg px-3 py-2"
                   >
-                    <span className="font-medium">{n.name}</span>
-                    <span className="text-xs text-stone-500">
-                      {n.baseUnit === "grams"
-                        ? `${Math.round(n.caloriesPerBaseUnit * 100 * 100) / 100} cal/100g`
-                        : `${n.caloriesPerBaseUnit} cal/item`}
-                      {n.referenceUnit && n.gramsPerReferenceUnit
-                        ? ` · ${n.gramsPerReferenceUnit}g/${n.referenceUnit}`
-                        : ""}
-                    </span>
+                    <div>
+                      <span className="font-medium">{n.name}</span>
+                      <span className="text-xs text-stone-500 ml-2">
+                        {n.baseUnit === "grams"
+                          ? `${Math.round(n.caloriesPerBaseUnit * 100 * 100) / 100} cal/100g`
+                          : `${n.caloriesPerBaseUnit} cal/item`}
+                        {n.referenceUnit && n.gramsPerReferenceUnit
+                          ? ` · ${n.gramsPerReferenceUnit}g/${n.referenceUnit}`
+                          : ""}
+                      </span>
+                    </div>
+                    <label className="flex items-center gap-1.5 text-xs text-stone-600 flex-shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={n.pantryStaple ?? false}
+                        onChange={() => toggleNewIngredientPantryStaple(n.ref)}
+                        className="rounded border-stone-300"
+                      />
+                      Pantry staple
+                    </label>
                   </li>
                 ))}
               </ul>
