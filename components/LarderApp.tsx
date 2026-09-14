@@ -1300,6 +1300,23 @@ function ImportRecipeView({
     reader.readAsText(file);
   }
 
+  function updateRecipeIngredient(idx: number, patch: Partial<ImportIngredient>) {
+    setPayload((prev) => {
+      if (!prev) return prev;
+      const ingredients = prev.recipe.ingredients.map((ing, i) => (i === idx ? { ...ing, ...patch } : ing));
+      return { ...prev, recipe: { ...prev.recipe, ingredients } };
+    });
+  }
+
+  function toggleIngredientFlex(idx: number, ing: ImportIngredient) {
+    const nextIsFlex = !ing.isFlex;
+    updateRecipeIngredient(idx, { isFlex: nextIsFlex, flexDefault: nextIsFlex ? (ing.flexDefault ?? false) : false });
+  }
+
+  function toggleIngredientFlexDefault(idx: number, ing: ImportIngredient) {
+    updateRecipeIngredient(idx, { flexDefault: !ing.flexDefault });
+  }
+
   function toggleNewIngredientPantryStaple(ref: string) {
     setPayload((prev) => {
       if (!prev) return prev;
@@ -1466,12 +1483,16 @@ function ImportRecipeView({
 
           <div className="bg-amber-50 border border-stone-200 rounded-2xl p-5">
             <h3 className="font-display text-lg text-stone-900 mb-3">Ingredients</h3>
+            <p className="flex items-center gap-1 text-[11px] text-stone-400 mb-2">
+              <SlidersHorizontal size={10} /> = flexible ·{" "}
+              <Star size={10} className="text-amber-500 fill-amber-500" /> = its default option
+            </p>
             <table className="w-full text-sm">
               <tbody>
                 {payload.recipe.ingredients.map((ing, idx) =>
                   ing.isSectionHeader ? (
                     <tr key={idx}>
-                      <td colSpan={3} className="pt-4 pb-1.5 first:pt-0">
+                      <td colSpan={4} className="pt-4 pb-1.5 first:pt-0">
                         {ing.name ? (
                           <div className="flex items-center gap-2">
                             <span className="text-[11px] font-medium text-stone-500 uppercase tracking-wide whitespace-nowrap">
@@ -1498,6 +1519,34 @@ function ImportRecipeView({
                         {ing.quantity} {ing.unit}
                       </td>
                       <td className="py-2 text-stone-400 text-right w-16">{ing.calories || 0} cal</td>
+                      <td className="py-2 pl-2 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleIngredientFlex(idx, ing)}
+                            title={ing.isFlex ? "Flexible ingredient — click to make fixed" : "Make this a flexible ingredient"}
+                            className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                              ing.isFlex ? "bg-emerald-100 text-emerald-700" : "text-stone-300 hover:text-stone-500"
+                            }`}
+                          >
+                            <SlidersHorizontal size={12} />
+                          </button>
+                          {ing.isFlex && (
+                            <button
+                              type="button"
+                              onClick={() => toggleIngredientFlexDefault(idx, ing)}
+                              title={
+                                ing.flexDefault
+                                  ? "Included by default when scheduled"
+                                  : "Include by default when scheduled"
+                              }
+                              className="w-6 h-6 rounded-full flex items-center justify-center"
+                            >
+                              <Star size={12} className={ing.flexDefault ? "text-amber-500 fill-amber-500" : "text-stone-300"} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   )
                 )}
