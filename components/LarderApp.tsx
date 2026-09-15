@@ -47,6 +47,8 @@ import {
   updateFlexSelectionAction,
   updateLibraryIngredientAction,
 } from "@/app/actions";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import CookingMode from "@/components/CookingMode";
 import {
   CATEGORIES,
   CATEGORY_STYLE,
@@ -64,7 +66,6 @@ import {
   emptySectionHeader,
   generateId,
   getNext7Days,
-  groupIngredientsBySection,
   hasFlexIngredients,
   isConvertibleUnit,
   libraryIngredientMacros,
@@ -846,7 +847,7 @@ export default function LarderApp({
         })()}
 
       {cookingSession && (
-        <CookingModeView
+        <CookingMode
           recipe={cookingSession.recipe}
           flexIds={cookingSession.flexIds}
           servingMultiplier={cookingSession.servingMultiplier}
@@ -3791,36 +3792,6 @@ function IngredientLibraryForm({
   );
 }
 
-/* ---------- Shared ---------- */
-
-function ConfirmModal({
-  message,
-  confirmLabel = "Delete",
-  onCancel,
-  onConfirm,
-}: {
-  message: string;
-  confirmLabel?: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-stone-900/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-amber-50 rounded-2xl w-full max-w-sm p-5">
-        <p className="text-sm text-stone-700 mb-5">{message}</p>
-        <div className="flex justify-end gap-2">
-          <button onClick={onCancel} className="px-4 py-2 rounded-full text-sm font-medium text-stone-600 hover:bg-stone-100">
-            Cancel
-          </button>
-          <button onClick={onConfirm} className="px-4 py-2 rounded-full text-sm font-medium bg-orange-700 text-amber-50">
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------- Meal slot action dialog ---------- */
 
 function MealSlotActionModal({
@@ -3879,295 +3850,4 @@ function MealSlotActionModal({
 }
 
 /* ---------- Cooking Mode ---------- */
-
-function loadCookingState(key: string): { checked: string[]; step: number | null } {
-  try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return { checked: [], step: null };
-    const parsed = JSON.parse(raw);
-    return {
-      checked: Array.isArray(parsed.checked) ? parsed.checked : [],
-      step: typeof parsed.step === "number" ? parsed.step : null,
-    };
-  } catch {
-    return { checked: [], step: null };
-  }
-}
-
-function saveCookingState(key: string, state: { checked: string[]; step: number | null }) {
-  try {
-    sessionStorage.setItem(key, JSON.stringify(state));
-  } catch {
-    // sessionStorage unavailable (private mode, etc.) — cooking still works,
-    // it just won't survive an accidental reload.
-  }
-}
-
-function CookingModeView({
-  recipe,
-  flexIds,
-  servingMultiplier,
-  sessionKey,
-  onClose,
-}: {
-  recipe: Recipe;
-  flexIds: string[];
-  servingMultiplier: number;
-  sessionKey: string;
-  onClose: () => void;
-}) {
-  const steps = useMemo(() => parseInstructionSteps(recipe.instructions), [recipe.instructions]);
-  const sections = useMemo(() => {
-    // Flex ingredients now live wherever they were placed in the recipe (a
-    // section, or the top-level list) rather than always being pulled into
-    // a separate trailing group — only the ones actually active for this
-    // cooking session are included, same as before.
-    const cookingIngredients = recipe.ingredients.filter((i) => !i.isFlex || flexIds.includes(i.id));
-    return groupIngredientsBySection(cookingIngredients);
-  }, [recipe.ingredients, flexIds]);
-
-  const initial = useMemo(() => loadCookingState(sessionKey), [sessionKey]);
-  const [checked, setChecked] = useState<Set<string>>(() => new Set(initial.checked));
-  const [activeStep, setActiveStep] = useState<number | null>(initial.step);
-  const [confirmingExit, setConfirmingExit] = useState(false);
-  const [mobileTab, setMobileTab] = useState<"ingredients" | "instructions">("ingredients");
-  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  useEffect(() => {
-    saveCookingState(sessionKey, { checked: Array.from(checked), step: activeStep });
-  }, [checked, activeStep, sessionKey]);
-
-  useEffect(() => {
-    if (activeStep === null) return;
-    const step = steps[activeStep];
-    if (!step || step.categories.length === 0) return;
-    const match = sections.find((s) => s.title && step.categories.includes(s.title.toUpperCase()));
-    if (match) {
-      sectionRefs.current[match.key]?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [activeStep, steps, sections]);
-
-  function toggleChecked(id: string) {
-    setChecked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function confirmExit() {
-    try {
-      sessionStorage.removeItem(sessionKey);
-    } catch {
-      // ignore
-    }
-    onClose();
-  }
-
-  const activeCategories = activeStep !== null ? steps[activeStep]?.categories ?? [] : [];
-
-  return (
-    <div className="fixed inset-0 bg-stone-100 z-50 flex flex-col overscroll-none">
-      <div className="md:hidden flex border-b border-stone-200 bg-amber-50 flex-shrink-0">
-        <button
-          onClick={() => setMobileTab("ingredients")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 ${
-            mobileTab === "ingredients"
-              ? "text-emerald-800 border-emerald-800"
-              : "text-stone-400 border-transparent"
-          }`}
-        >
-          Ingredients
-        </button>
-        <button
-          onClick={() => setMobileTab("instructions")}
-          className={`flex-1 py-2.5 text-sm font-medium text-center border-b-2 ${
-            mobileTab === "instructions"
-              ? "text-emerald-800 border-emerald-800"
-              : "text-stone-400 border-transparent"
-          }`}
-        >
-          Instructions
-        </button>
-      </div>
-
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        <div
-          className={`${
-            mobileTab === "ingredients" ? "flex" : "hidden"
-          } md:flex flex-col flex-1 min-h-0 md:flex-none md:w-1/3 md:border-r border-stone-200 overflow-y-auto p-4 space-y-4`}
-        >
-          {sections.map((section) => {
-            const isActiveMatch =
-              activeCategories.length > 0 &&
-              section.title !== null &&
-              activeCategories.includes(section.title.toUpperCase());
-            return (
-              <div key={section.key} ref={(el) => { sectionRefs.current[section.key] = el; }}>
-                {section.title && (
-                  <p className="text-lg font-medium text-stone-500 uppercase tracking-wide mb-2 px-1">
-                    {section.title}
-                  </p>
-                )}
-                <div
-                  className={`space-y-2 rounded-xl transition-colors ${isActiveMatch ? "bg-amber-200 p-2 -m-2" : ""}`}
-                >
-                  {section.items.map((ing) => {
-                    const isChecked = checked.has(ing.id);
-                    return (
-                      <button
-                        key={ing.id}
-                        onClick={() => toggleChecked(ing.id)}
-                        className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-lg text-left border ${
-                          isChecked ? "border-stone-200 bg-stone-100" : "border-stone-200 bg-white hover:bg-stone-50"
-                        }`}
-                      >
-                        <span
-                          className={`w-8 h-8 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                            isChecked ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
-                          }`}
-                        >
-                          {isChecked && <Check size={18} className="text-amber-50" />}
-                        </span>
-                        <span
-                          className={`flex-1 text-xl font-bold ${isChecked ? "line-through text-stone-400" : "text-stone-800"}`}
-                        >
-                          {ing.name} — {scaleQuantityDisplay(ing.quantity, servingMultiplier)} {ing.unit}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div
-          className={`${
-            mobileTab === "instructions" ? "block" : "hidden"
-          } md:block flex-1 min-h-0 overflow-y-auto p-4 md:p-6`}
-        >
-          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-            <div className="flex flex-wrap gap-1.5">
-              {steps.length > 0 && (
-                <>
-                  <button
-                    onClick={() => setActiveStep(null)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium ${
-                      activeStep === null ? "bg-emerald-800 text-amber-50" : "bg-stone-200 text-stone-600 hover:bg-stone-300"
-                    }`}
-                  >
-                    All steps
-                  </button>
-                  {steps.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setActiveStep(idx)}
-                      className={`w-8 h-8 rounded-full text-xs font-medium ${
-                        activeStep === idx ? "bg-emerald-800 text-amber-50" : "bg-stone-200 text-stone-600 hover:bg-stone-300"
-                      }`}
-                    >
-                      {idx + 1}
-                    </button>
-                  ))}
-                </>
-              )}
-            </div>
-            <button
-              onClick={() => setConfirmingExit(true)}
-              className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full border border-stone-200 bg-amber-50 text-stone-500 hover:bg-stone-100"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          {steps.length === 0 ? (
-            <p className="text-sm text-stone-500">No instructions added.</p>
-          ) : (
-            <>
-              {activeStep === null ? (
-                <ol className="space-y-4">
-                  {steps.map((step, idx) => (
-                    <li key={idx} className="flex gap-3">
-                      <span className="font-display text-lg text-stone-400 flex-shrink-0 w-6">{idx + 1}</span>
-                      <div>
-                        {step.categories.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mb-1">
-                            {step.categories.map((c) => (
-                              <span
-                                key={c}
-                                className="text-[10px] font-medium uppercase tracking-wide bg-stone-200 text-stone-600 px-1.5 py-0.5 rounded"
-                              >
-                                {c}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <p className="text-lg text-stone-800 leading-relaxed">{step.text}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <div className="pb-40">
-                  {steps[activeStep].categories.length > 0 && (
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {steps[activeStep].categories.map((c) => (
-                        <span
-                          key={c}
-                          className="text-[11px] font-medium uppercase tracking-wide bg-stone-200 text-stone-600 px-2 py-1 rounded"
-                        >
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <p className="font-serif text-4xl md:text-5xl text-stone-900 leading-snug">
-                    {steps[activeStep].text}
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {activeStep !== null && (
-        <div
-          className={`${
-            mobileTab === "instructions" ? "flex" : "hidden"
-          } md:flex fixed bottom-0 left-0 right-0 md:left-1/3 items-center justify-between px-4 py-5 md:px-8 bg-gradient-to-t from-stone-100 via-stone-100 to-transparent pointer-events-none z-10`}
-        >
-          <button
-            onClick={() => setActiveStep((s) => (s !== null && s > 0 ? s - 1 : s))}
-            disabled={activeStep === 0}
-            className="pointer-events-auto w-20 h-20 rounded-full bg-white border border-stone-200 shadow-md flex items-center justify-center disabled:opacity-30 flex-shrink-0"
-          >
-            <ChevronLeft size={34} className="text-stone-700" />
-          </button>
-          <span className="pointer-events-auto text-xs text-stone-500 font-medium">
-            Step {activeStep + 1} of {steps.length}
-          </span>
-          <button
-            onClick={() => setActiveStep((s) => (s !== null && s < steps.length - 1 ? s + 1 : s))}
-            disabled={activeStep === steps.length - 1}
-            className="pointer-events-auto w-20 h-20 rounded-full bg-emerald-800 text-amber-50 shadow-md flex items-center justify-center disabled:opacity-30 flex-shrink-0"
-          >
-            <ChevronRight size={34} />
-          </button>
-        </div>
-      )}
-
-      {confirmingExit && (
-        <ConfirmModal
-          message="Exit cooking mode? Your checklist progress will be cleared."
-          confirmLabel="Exit"
-          onCancel={() => setConfirmingExit(false)}
-          onConfirm={confirmExit}
-        />
-      )}
-    </div>
-  );
-}
+/* See components/CookingMode.tsx for the full view. */

@@ -28,3 +28,23 @@ body {
 .font-display {
   font-family: var(--font-fraunces), Georgia, serif;
 }
+
+/* Cooking Mode's own visual identity — cream/gold/green/burnt-orange,
+   distinct from the rest of the app's amber/stone/emerald palette. Scoped
+   to a `.cook-mode` wrapper so it never leaks into the surrounding app. */
+.cook-mode {
+  --cook-canvas: #f2f1ee;
+  --cook-step-bg: #fdf9ec;
+  --cook-step-border: #f0dd9c;
+  --cook-row: #f7f6f3;
+  --cook-green: #0f4a35;
+  --cook-orange: #b0430c;
+  --cook-gold-text: #8a6a10;
+  --cook-gold-bg: #fdf1c8;
+  --cook-gold-border: #e6cf7d;
+  --cook-ink: #1c1a17;
+}
+
+.cook-serif {
+  font-family: var(--font-source-serif), Georgia, serif;
+}

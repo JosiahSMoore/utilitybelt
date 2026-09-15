@@ -231,6 +231,26 @@ export function groupIngredientsBySection(ingredients: Ingredient[]): Ingredient
   return groups.filter((g) => g.items.length > 0);
 }
 
+// Maps each ingredient section to the first step that tags it, so Cooking
+// Mode can tell whether a section is "done" (its step already passed),
+// "current" (matches the active step), or "upcoming" relative to wherever
+// the cook is. Sections with no matching step (untagged, e.g. a leading
+// ungrouped run of ingredients) are left out of the map — those are always
+// shown rather than gated by step progress.
+export function sectionStepIndex(
+  sections: IngredientSection[],
+  steps: InstructionStep[]
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const section of sections) {
+    if (!section.title) continue;
+    const upper = section.title.toUpperCase();
+    const idx = steps.findIndex((s) => s.categories.includes(upper));
+    if (idx !== -1) map.set(section.key, idx);
+  }
+  return map;
+}
+
 export type PlanDay = {
   date: string;
   weekday: string;
