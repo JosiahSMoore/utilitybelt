@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Pause, Play, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Pause, Play, Square, X } from "lucide-react";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import {
   generateId,
@@ -183,7 +183,9 @@ export default function CookingMode({
   const [now, setNow] = useState(() => Date.now());
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
-  const rungRef = useRef<Set<string>>(new Set());
+  const focusContentRef = useRef<HTMLDivElement | null>(null);
+  const stepTextRef = useRef<HTMLParagraphElement | null>(null);
+  const [stepFontSize, setStepFontSize] = useState(42);
 
   useEffect(() => {
     saveCookingState(sessionKey, { checked: Array.from(checked), step: activeStep });
@@ -203,6 +205,30 @@ export default function CookingMode({
     }
   }, [activeStep, steps, sections]);
 
+  // Instead of letting a long step scroll, shrink its text until it fits the
+  // available space — measure at the largest size, then step the font size
+  // down until the content no longer overflows its (non-scrolling) container.
+  useLayoutEffect(() => {
+    if (activeStep === null) return;
+    function fit() {
+      const container = focusContentRef.current;
+      const textEl = stepTextRef.current;
+      if (!container || !textEl) return;
+      const maxFont = window.innerWidth >= 768 ? 42 : 32;
+      const minFont = 18;
+      let size = maxFont;
+      textEl.style.fontSize = `${size}px`;
+      while (size > minFont && container.scrollHeight > container.clientHeight) {
+        size -= 2;
+        textEl.style.fontSize = `${size}px`;
+      }
+      setStepFontSize(size);
+    }
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [activeStep, steps]);
+
   // Wall-clock (`endsAt`) timers stay correct even if the interval is
   // throttled in a backgrounded tab — this only ticks re-renders, it never
   // does the actual timekeeping. Skipped entirely when nothing is running,
@@ -213,16 +239,14 @@ export default function CookingMode({
     return () => clearInterval(id);
   }, [timers]);
 
+  // Persistent alarm: as long as a timer is both `running` and expired, this
+  // re-fires once per tick (the 1s interval above) — so it keeps beeping
+  // until you either clear it or hit the stop-alarm control, which sets
+  // `running: false` and drops it out of this check.
   useEffect(() => {
-    timers.forEach((t) => {
-      const remaining = timerRemainingMs(t, now);
-      if (t.running && remaining <= 0 && !rungRef.current.has(t.id)) {
-        rungRef.current.add(t.id);
-        playBeep();
-      } else if (remaining > 0) {
-        rungRef.current.delete(t.id);
-      }
-    });
+    if (timers.some((t) => t.running && timerRemainingMs(t, now) <= 0)) {
+      playBeep();
+    }
   }, [timers, now]);
 
   useEffect(() => {
@@ -265,6 +289,45 @@ export default function CookingMode({
       else next.add(id);
       return next;
     });
+  }
+
+  // From step 1, "back" returns to the All-steps overview rather than doing
+  // nothing — only the overview itself is a true dead end for Prev.
+  function goToPrevStep() {
+    setActiveStep((s) => {
+      if (s === null) return s;
+      return s > 0 ? s - 1 : null;
+    });
+  }
+
+  function goToNextStep() {
+    setActiveStep((s) => {
+      if (s === null) return 0;
+      return s < steps.length - 1 ? s + 1 : s;
+    });
+  }
+
+  // Swipe left/right between steps (iPad, or any touch device) — only while
+  // focused on a single step; a large-enough, mostly-horizontal touch
+  // gesture is treated as a swipe so it doesn't fight with vertical
+  // scrolling of a long step.
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  function handleStepTouchStart(e: React.TouchEvent) {
+    const touch = e.touches[0];
+    touchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  }
+
+  function handleStepTouchEnd(e: React.TouchEvent) {
+    const start = touchStartRef.current;
+    touchStartRef.current = null;
+    if (!start || activeStep === null) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) goToNextStep();
+    else goToPrevStep();
   }
 
   function startTimer(stepIndex: number, label: string, minutes: number) {
@@ -553,9 +616,10 @@ export default function CookingMode({
                         <div className="flex gap-1.5 flex-none">
                           <button
                             onClick={() => (t.running ? pauseTimer(t.id) : resumeTimer(t.id))}
+                            title={ringing && t.running ? "Stop alarm" : t.running ? "Pause" : "Resume"}
                             className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-black/60"
                           >
-                            {t.running ? <Pause size={14} /> : <Play size={14} />}
+                            {ringing && t.running ? <Square size={13} /> : t.running ? <Pause size={14} /> : <Play size={14} />}
                           </button>
                           <button
                             onClick={() => clearTimer(t.id)}
@@ -591,11 +655,15 @@ export default function CookingMode({
 
         {/* Instructions panel */}
         <div
+          onTouchStart={handleStepTouchStart}
+          onTouchEnd={handleStepTouchEnd}
           className={`${
-            mobileTab === "instructions" ? "block" : "hidden"
-          } md:block flex-1 min-h-0 overflow-y-auto bg-[var(--cook-step-bg)] p-4 md:p-6`}
+            mobileTab === "instructions" ? "flex" : "hidden"
+          } md:flex flex-col flex-1 min-h-0 ${
+            activeStep === null ? "overflow-y-auto" : "overflow-hidden"
+          } bg-[var(--cook-step-bg)] p-4 md:p-6`}
         >
-          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap flex-none">
             <div className="flex flex-wrap gap-1.5">
               {steps.length > 0 && (
                 <>
@@ -634,7 +702,7 @@ export default function CookingMode({
           ) : (
             <>
               {activeStep === null ? (
-                <ol className="space-y-4 max-w-3xl">
+                <ol className="space-y-4 max-w-3xl pb-24">
                   {steps.map((step, idx) => (
                     <li key={idx} className="flex gap-3">
                       <span className="cook-serif text-lg text-black/35 flex-shrink-0 w-6">{idx + 1}</span>
@@ -657,9 +725,9 @@ export default function CookingMode({
                   ))}
                 </ol>
               ) : (
-                <div className="pb-40 max-w-3xl">
+                <div ref={focusContentRef} className="flex-1 min-h-0 overflow-hidden flex flex-col max-w-3xl pb-40">
                   {steps[activeStep].categories.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-2 mb-5">
+                    <div className="flex-none flex flex-wrap items-center gap-2 mb-5">
                       {steps[activeStep].categories.map((c) => (
                         <span
                           key={c}
@@ -670,21 +738,27 @@ export default function CookingMode({
                       ))}
                     </div>
                   )}
-                  <p className="cook-serif text-4xl md:text-5xl text-[var(--cook-ink)] leading-[1.28] tracking-tight">
+                  <p
+                    ref={stepTextRef}
+                    style={{ fontSize: `${stepFontSize}px` }}
+                    className="cook-serif text-[var(--cook-ink)] leading-[1.28] tracking-tight flex-1 min-h-0 overflow-hidden"
+                  >
                     {steps[activeStep].text}
                   </p>
 
                   {timerForActiveStep ? (
-                    <div className="mt-8 flex items-center gap-2.5 text-[13.5px] text-black/50">
+                    <div className="flex-none mt-8 flex items-center gap-2.5 text-[13.5px] text-black/50">
                       <span className="w-2 h-2 rounded-full bg-[var(--cook-gold-text)]" />
                       <span>
                         {formatClock(timerRemainingMs(timerForActiveStep, now))} timer running — see the sidebar
                       </span>
                     </div>
                   ) : (
-                    <StartTimerControl
-                      onStart={(minutes) => startTimer(activeStep, defaultTimerLabel(activeStep, activeCategories), minutes)}
-                    />
+                    <div className="flex-none">
+                      <StartTimerControl
+                        onStart={(minutes) => startTimer(activeStep, defaultTimerLabel(activeStep, activeCategories), minutes)}
+                      />
+                    </div>
                   )}
                 </div>
               )}
@@ -693,33 +767,39 @@ export default function CookingMode({
         </div>
       </div>
 
-      {activeStep !== null && (
+      {steps.length > 0 && (
         <div
           className={`${
             mobileTab === "instructions" ? "flex" : "hidden"
           } md:flex fixed bottom-0 left-0 right-0 md:left-[360px] lg:left-[392px] items-center justify-between gap-4 px-4 py-5 md:px-7 bg-gradient-to-t from-[var(--cook-step-bg)] via-[var(--cook-step-bg)] to-transparent pointer-events-none z-10`}
         >
           <button
-            onClick={() => setActiveStep((s) => (s !== null && s > 0 ? s - 1 : s))}
-            disabled={activeStep === 0}
+            onClick={goToPrevStep}
+            disabled={activeStep === null}
             className="pointer-events-auto w-14 h-14 rounded-full bg-black/5 flex items-center justify-center disabled:opacity-30 flex-shrink-0"
           >
             <ChevronLeft size={22} className="text-black/40" />
           </button>
           <div className="pointer-events-auto flex-1 flex flex-col items-center gap-2">
-            <span className="text-xs text-black/45 font-medium">
-              Step {activeStep + 1} of {steps.length}
-            </span>
-            <span className="block w-64 max-w-full h-1 rounded bg-black/[0.08] relative">
-              <span
-                className="absolute left-0 top-0 bottom-0 rounded bg-[var(--cook-green)]"
-                style={{ width: `${((activeStep + 1) / steps.length) * 100}%` }}
-              />
-            </span>
+            {activeStep !== null ? (
+              <>
+                <span className="text-xs text-black/45 font-medium">
+                  Step {activeStep + 1} of {steps.length}
+                </span>
+                <span className="block w-64 max-w-full h-1 rounded bg-black/[0.08] relative">
+                  <span
+                    className="absolute left-0 top-0 bottom-0 rounded bg-[var(--cook-green)]"
+                    style={{ width: `${((activeStep + 1) / steps.length) * 100}%` }}
+                  />
+                </span>
+              </>
+            ) : (
+              <span className="text-xs text-black/45 font-medium">All steps</span>
+            )}
           </div>
           <button
-            onClick={() => setActiveStep((s) => (s !== null && s < steps.length - 1 ? s + 1 : s))}
-            disabled={activeStep === steps.length - 1}
+            onClick={goToNextStep}
+            disabled={activeStep !== null && activeStep === steps.length - 1}
             className="pointer-events-auto flex items-center gap-2.5 h-[52px] pl-6 pr-2.5 rounded-full bg-[var(--cook-green)] text-white font-semibold text-[14.5px] disabled:opacity-30 flex-shrink-0"
           >
             Next step
