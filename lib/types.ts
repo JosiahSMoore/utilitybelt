@@ -108,6 +108,9 @@ export type MealSlotValue = {
   // occurrence — independent of any other date/slot using the same recipe.
   // null/absent means "use the recipe's own flexDefault flags".
   flexSelection?: string[] | null;
+  // Whether this specific occurrence has actually been eaten — toggled from
+  // Home's today card. Resets to false whenever the slot is reassigned.
+  eaten?: boolean;
 };
 
 export type DayPlan = Partial<Record<MealSlot, MealSlotValue | null>>;

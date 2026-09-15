@@ -12,11 +12,14 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="text-center py-16 border border-dashed border-stone-300 rounded-2xl">
-      <p className="font-display text-xl text-stone-800">{title}</p>
-      <p className="text-stone-500 text-sm mt-1">{body}</p>
+    <div className="text-center py-16 bg-white border border-black/[0.07] rounded-2xl">
+      <p className="font-display text-xl font-semibold text-stone-900">{title}</p>
+      <p className="text-black/45 text-[13.5px] mt-1.5">{body}</p>
       {actionLabel && (
-        <button onClick={onAction} className="mt-4 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full">
+        <button
+          onClick={onAction}
+          className="mt-5 bg-[#b0430c] text-white text-[13.5px] font-semibold px-5 py-2.5 rounded-full"
+        >
           {actionLabel}
         </button>
       )}

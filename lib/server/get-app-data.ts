@@ -44,6 +44,7 @@ export async function getAppData() {
       recipeId: row.recipe_id,
       custom: row.custom_meal ?? null,
       flexSelection: row.flex_selection ?? null,
+      eaten: Boolean(row.eaten),
     };
   });
 

@@ -43,6 +43,7 @@ import {
   importRecipeAction,
   moveMealSlotAction,
   saveLibraryIngredientAction,
+  setMealEatenAction,
   saveRecipeAction,
   syncShoppingListAction,
   toggleShoppingItemAction,
@@ -382,6 +383,23 @@ export default function LarderApp({
     }
   }
 
+  async function toggleMealEaten(date: string, slot: MealSlot, eaten: boolean) {
+    const prev = mealPlan;
+    const current = mealPlan[date]?.[slot];
+    if (!current) return;
+    const next = {
+      ...mealPlan,
+      [date]: { ...(mealPlan[date] || {}), [slot]: { ...current, eaten } },
+    };
+    setMealPlan(next);
+    try {
+      await setMealEatenAction(date, slot, eaten);
+    } catch {
+      setMealPlan(prev);
+      showToast("Couldn't update that — try again.");
+    }
+  }
+
   // Drag-to-move (or the picker's implicit swap) between two meal-plan
   // cells. Moves into an empty target; swaps both ways if it's occupied.
   async function moveMeal(
@@ -687,6 +705,7 @@ export default function LarderApp({
                 servingMultiplier: 1,
               })
             }
+            onToggleEaten={toggleMealEaten}
           />
         )}
 
@@ -2336,31 +2355,43 @@ function ShoppingListView({
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-5">
-        <h1 className="font-display text-2xl text-stone-900">Shopping list</h1>
-        <div className="flex items-center gap-4">
+      <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-[32px] font-semibold tracking-tight text-stone-900">Shopping list</h1>
+          <p className="text-[13px] text-black/45 mt-1">
+            {list.length} item{list.length === 1 ? "" : "s"}
+            {hasChecked ? ` · ${list.filter((i) => i.checked).length} checked` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-2.5">
           {hasChecked && (
-            <button onClick={onClearChecked} className="text-sm font-medium text-orange-700 hover:underline">
+            <button
+              onClick={onClearChecked}
+              className="text-[13px] font-medium px-4 py-[11px] rounded-full bg-white border border-black/[0.09] text-orange-700"
+            >
               Clear checked
             </button>
           )}
-          <button onClick={onRebuild} className="text-sm font-medium text-emerald-800 hover:underline">
+          <button
+            onClick={onRebuild}
+            className="text-[13px] font-medium px-4 py-[11px] rounded-full bg-white border border-black/[0.09] text-black/65"
+          >
             Rebuild from plan
           </button>
         </div>
       </div>
 
-      <form onSubmit={submitAdd} className="flex gap-2 mb-4">
+      <form onSubmit={submitAdd} className="flex gap-2.5 mb-5">
         <input
           value={newItemName}
           onChange={(e) => setNewItemName(e.target.value)}
           placeholder="Add an item…"
-          className="flex-1 px-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="flex-1 h-12 px-[18px] rounded-full bg-[#f7f6f3] border border-black/[0.08] text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
         <button
           type="submit"
           disabled={!newItemName.trim()}
-          className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-4 py-2 rounded-full disabled:opacity-40"
+          className="flex items-center gap-1.5 h-12 px-6 rounded-full bg-[#0f4a35] text-white text-sm font-semibold disabled:opacity-40"
         >
           <Plus size={15} /> Add
         </button>
@@ -2369,18 +2400,18 @@ function ShoppingListView({
       {list.length === 0 ? (
         <EmptyState title="No shopping list yet" body="Plan some meals for the week, then build your list from there." />
       ) : (
-        <div className="bg-amber-50 border border-stone-200 rounded-2xl divide-y divide-stone-100">
+        <div className="bg-white border border-black/[0.07] rounded-2xl divide-y divide-black/[0.06]">
           {sortedList.map((item) => (
-            <button key={item.id} onClick={() => onToggle(item.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left">
+            <button key={item.id} onClick={() => onToggle(item.id)} className="w-full flex items-center gap-3 px-4 py-3.5 text-left">
               <span
                 className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                  item.checked ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
+                  item.checked ? "bg-[#0f4a35] border-[#0f4a35]" : "border-black/20"
                 }`}
               >
-                {item.checked && <Check size={12} className="text-amber-50" />}
+                {item.checked && <Check size={12} className="text-white" />}
               </span>
               <div className="flex-1">
-                <p className={`text-sm ${item.checked ? "line-through text-stone-400" : "text-stone-800"}`}>{item.name}</p>
+                <p className={`text-sm ${item.checked ? "line-through text-black/35" : "text-stone-800"}`}>{item.name}</p>
                 {item.recipes && item.recipes.length > 0 && (
                   <p className="text-[11px] text-stone-400">for {item.recipes.join(", ")}</p>
                 )}
@@ -2523,20 +2554,23 @@ function IngredientLibraryView({
         <ChevronLeft size={16} /> Back to recipes
       </button>
 
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
-        <h1 className="font-display text-2xl text-stone-900">Ingredient library</h1>
-        <div className="flex items-center gap-2">
+      <div className="flex items-end justify-between mb-5 flex-wrap gap-3">
+        <div>
+          <h1 className="font-display text-[32px] font-semibold tracking-tight text-stone-900">Ingredient library</h1>
+          <p className="text-[13px] text-black/45 mt-1">{library.length} saved</p>
+        </div>
+        <div className="flex items-center gap-2.5">
           <button
             onClick={copyLibraryAsJson}
             title="Copy the full ingredient library as JSON — paste into the recipe-import Claude Skill"
-            className="flex items-center gap-1.5 border border-stone-200 text-stone-600 text-sm font-medium rounded-full hover:bg-stone-100 px-3.5 py-2"
+            className="flex items-center gap-1.5 bg-white border border-black/[0.09] text-black/65 text-[13px] font-medium rounded-full px-4 py-[11px]"
           >
             {copied ? <Check size={15} className="text-emerald-700" /> : <Copy size={15} />}
             {copied ? "Copied!" : "Copy JSON"}
           </button>
           <button
             onClick={startAdd}
-            className="flex items-center gap-1.5 bg-emerald-800 text-amber-50 text-sm font-medium px-3.5 py-2 rounded-full"
+            className="flex items-center gap-1.5 bg-[#0f4a35] text-white text-[13.5px] font-semibold px-5 py-3 rounded-full"
           >
             <Plus size={15} /> Add ingredient
           </button>
@@ -2544,28 +2578,28 @@ function IngredientLibraryView({
       </div>
 
       <div className="relative mb-5">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+        <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-black/35" />
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search ingredients…"
-          className="w-full pl-9 pr-3 py-2 rounded-full border border-stone-200 bg-amber-50 text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+          className="w-full h-11 pl-9 pr-3 rounded-full bg-white border border-black/[0.09] text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
         />
       </div>
 
       <div className="flex gap-1.5 mb-5">
         <button
           onClick={() => setPantryOnly(false)}
-          className={`px-3 py-1.5 rounded-full text-xs font-medium border ${
-            !pantryOnly ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+          className={`px-[15px] py-2.5 rounded-full text-[12.5px] font-medium ${
+            !pantryOnly ? "bg-[#0f4a35] text-white" : "bg-white border border-black/[0.09] text-black/60"
           }`}
         >
           All ingredients
         </button>
         <button
           onClick={() => setPantryOnly(true)}
-          className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border ${
-            pantryOnly ? "bg-stone-800 text-amber-50 border-stone-800" : "border-stone-200 text-stone-600"
+          className={`flex items-center gap-1 px-[15px] py-2.5 rounded-full text-[12.5px] font-medium ${
+            pantryOnly ? "bg-[#0f4a35] text-white" : "bg-white border border-black/[0.09] text-black/60"
           }`}
         >
           <Package size={11} /> Pantry staples
@@ -2613,7 +2647,7 @@ function IngredientLibraryView({
             : `No ingredients match “${query}”.`}
         </p>
       ) : (
-        <div className="bg-amber-50 border border-stone-200 rounded-2xl divide-y divide-stone-100">
+        <div className="bg-white border border-black/[0.07] rounded-2xl divide-y divide-black/[0.06]">
           {filtered.map((ing) =>
             editingId === ing.id ? (
               <IngredientLibraryForm

@@ -115,6 +115,11 @@ alter table meal_plan add column if not exists custom_meal jsonb;
 -- rows saved before this feature existed).
 alter table meal_plan add column if not exists flex_selection jsonb;
 
+-- Whether this planned meal has actually been eaten — toggled from Home's
+-- today card, independent of the slot's own date/time. Resets to false
+-- whenever a slot is (re)assigned a new recipe or custom meal.
+alter table meal_plan add column if not exists eaten boolean not null default false;
+
 -- Extra items eaten on a given day outside any planned meal slot. Simpler
 -- than a recipe ingredient on purpose — just a label and a calorie count,
 -- no protein/fiber tracking, no link back to the ingredient library (the

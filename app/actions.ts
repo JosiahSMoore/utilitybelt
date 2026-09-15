@@ -85,7 +85,7 @@ export async function assignMealAction(
   const { error } = await supabase
     .from("meal_plan")
     .upsert(
-      { date, slot, recipe_id: recipeId, custom_meal: null, flex_selection: flexSelection },
+      { date, slot, recipe_id: recipeId, custom_meal: null, flex_selection: flexSelection, eaten: false },
       { onConflict: "date,slot" }
     );
   if (error) throw new Error(error.message);
@@ -100,9 +100,23 @@ export async function assignCustomMealAction(
   const { error } = await supabase
     .from("meal_plan")
     .upsert(
-      { date, slot, recipe_id: null, custom_meal: custom, flex_selection: null },
+      { date, slot, recipe_id: null, custom_meal: custom, flex_selection: null, eaten: false },
       { onConflict: "date,slot" }
     );
+  if (error) throw new Error(error.message);
+}
+
+export async function setMealEatenAction(
+  date: string,
+  slot: MealSlot,
+  eaten: boolean
+): Promise<void> {
+  const supabase = createAdminClient();
+  const { error } = await supabase
+    .from("meal_plan")
+    .update({ eaten })
+    .eq("date", date)
+    .eq("slot", slot);
   if (error) throw new Error(error.message);
 }
 
@@ -136,6 +150,7 @@ type MealPlanRow = {
   recipe_id: string | null;
   custom_meal: CustomMeal | null;
   flex_selection: string[] | null;
+  eaten: boolean | null;
 };
 
 // Drag-to-move (or click-to-swap) a meal-plan cell onto another one. Moves
@@ -175,6 +190,7 @@ export async function moveMealSlotAction(
       recipe_id: fromRow.recipe_id,
       custom_meal: fromRow.custom_meal,
       flex_selection: fromRow.flex_selection,
+      eaten: fromRow.eaten ?? false,
     },
     { onConflict: "date,slot" }
   );
@@ -188,6 +204,7 @@ export async function moveMealSlotAction(
         recipe_id: toRow.recipe_id,
         custom_meal: toRow.custom_meal,
         flex_selection: toRow.flex_selection,
+        eaten: toRow.eaten ?? false,
       },
       { onConflict: "date,slot" }
     );
@@ -226,6 +243,7 @@ export async function getMealPlanRangeAction(
       recipeId: row.recipe_id,
       custom: row.custom_meal,
       flexSelection: row.flex_selection,
+      eaten: Boolean(row.eaten),
     };
   });
 

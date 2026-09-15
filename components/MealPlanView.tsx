@@ -440,67 +440,71 @@ export function MealPlanView({
               return (
                 <div
                   key={key}
-                  data-cell-key={`${d.date}|${slot}`}
-                  ref={(el) => {
-                    cellNodeRefs.current[key] = el;
-                  }}
-                  tabIndex={0}
-                  role="button"
-                  aria-label={name ? `${name}, ${SLOT_LABEL[slot]}, ${d.weekday} ${d.dayNum}` : `Empty ${SLOT_LABEL[slot]} slot, ${d.weekday} ${d.dayNum}`}
-                  onPointerDown={name ? (e) => beginPossibleDrag(e, { date: d.date, slot }, name) : undefined}
-                  onPointerMove={name ? handlePointerMove : undefined}
-                  onPointerUp={name ? handlePointerUp : undefined}
-                  onPointerCancel={name ? cancelPointerDrag : undefined}
-                  onClick={() => {
-                    if (justDraggedRef.current) {
-                      justDraggedRef.current = false;
-                      return;
-                    }
-                    name ? openSlotActions(d.date, slot) : openPicker(d.date, slot);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !keyboardFrom) {
-                      name ? openSlotActions(d.date, slot) : openPicker(d.date, slot);
-                    }
-                  }}
-                  className={`m-[7px] rounded-[9px] text-[13px] text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#0f4a35] ${
-                    name ? "touch-none" : ""
-                  } ${isDragSource ? "opacity-0" : ""}`}
-                  style={{ minHeight: 48 }}
+                  className={d.isToday ? "bg-[#fdf9ec] border-l border-r border-[#f0dd9c]" : ""}
                 >
-                  {isCooking ? (
-                    <div className="p-[10px_11px] rounded-[9px] bg-[#0f4a35] text-white">
-                      <div className="font-semibold leading-tight">{name}</div>
-                      <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,.65)" }}>
-                        cooking
+                  <div
+                    data-cell-key={`${d.date}|${slot}`}
+                    ref={(el) => {
+                      cellNodeRefs.current[key] = el;
+                    }}
+                    tabIndex={0}
+                    role="button"
+                    aria-label={name ? `${name}, ${SLOT_LABEL[slot]}, ${d.weekday} ${d.dayNum}` : `Empty ${SLOT_LABEL[slot]} slot, ${d.weekday} ${d.dayNum}`}
+                    onPointerDown={name ? (e) => beginPossibleDrag(e, { date: d.date, slot }, name) : undefined}
+                    onPointerMove={name ? handlePointerMove : undefined}
+                    onPointerUp={name ? handlePointerUp : undefined}
+                    onPointerCancel={name ? cancelPointerDrag : undefined}
+                    onClick={() => {
+                      if (justDraggedRef.current) {
+                        justDraggedRef.current = false;
+                        return;
+                      }
+                      name ? openSlotActions(d.date, slot) : openPicker(d.date, slot);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !keyboardFrom) {
+                        name ? openSlotActions(d.date, slot) : openPicker(d.date, slot);
+                      }
+                    }}
+                    className={`m-[7px] rounded-[9px] text-[13px] text-left cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-[#0f4a35] ${
+                      name ? "touch-none" : ""
+                    } ${isDragSource ? "opacity-0" : ""}`}
+                    style={{ minHeight: 48 }}
+                  >
+                    {isCooking ? (
+                      <div className="p-[10px_11px] rounded-[9px] bg-[#0f4a35] text-white">
+                        <div className="font-semibold leading-tight">{name}</div>
+                        <div className="text-[11px] mt-0.5" style={{ color: "rgba(255,255,255,.65)" }}>
+                          cooking
+                        </div>
                       </div>
-                    </div>
-                  ) : name ? (
-                    <div
-                      className={`p-[10px_11px] rounded-[9px] transition-colors ${
-                        isKeyboardSource
-                          ? "bg-[#0f4a35]/10 border border-[#0f4a35]"
-                          : d.isToday
-                            ? "bg-white border border-[#f0dd9c]"
-                            : "bg-[#f7f6f3]"
-                      } ${isHoverTarget ? "ring-2 ring-[#0f4a35]" : ""}`}
-                    >
-                      <div className="font-semibold leading-tight text-stone-900">{name}</div>
-                    </div>
-                  ) : (
-                    <div
-                      className={`flex items-center justify-center rounded-[9px] border border-dashed ${
-                        isHoverTarget
-                          ? "border-[#0f4a35] bg-[#0f4a35]/[0.06]"
-                          : d.isToday
-                            ? "border-[#e6cf7d] text-[#8a6a10]"
-                            : "border-black/[0.14] text-black/25"
-                      }`}
-                      style={{ minHeight: 48 }}
-                    >
-                      <Plus size={14} />
-                    </div>
-                  )}
+                    ) : name ? (
+                      <div
+                        className={`p-[10px_11px] rounded-[9px] transition-colors ${
+                          isKeyboardSource
+                            ? "bg-[#0f4a35]/10 border border-[#0f4a35]"
+                            : d.isToday
+                              ? "bg-white border border-[#f0dd9c]"
+                              : "bg-[#f7f6f3]"
+                        } ${isHoverTarget ? "ring-2 ring-[#0f4a35]" : ""}`}
+                      >
+                        <div className="font-semibold leading-tight text-stone-900">{name}</div>
+                      </div>
+                    ) : (
+                      <div
+                        className={`flex items-center justify-center rounded-[9px] border border-dashed ${
+                          isHoverTarget
+                            ? "border-[#0f4a35] bg-[#0f4a35]/[0.06]"
+                            : d.isToday
+                              ? "border-[#e6cf7d] text-[#8a6a10]"
+                              : "border-black/[0.14] text-black/25"
+                        }`}
+                        style={{ minHeight: 48 }}
+                      >
+                        <Plus size={14} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -515,16 +519,21 @@ export function MealPlanView({
             const extras = dailyExtras.filter((e) => e.date === d.date);
             const total = extras.reduce((sum, e) => sum + e.calories, 0);
             return (
-              <div key={d.date} className="m-[7px]">
-                <button
-                  onClick={() => openExtras(d.date)}
-                  className={`w-full flex items-center justify-center gap-1.5 rounded-[9px] border border-dashed text-[12.5px] ${
-                    d.isToday ? "border-[#e6cf7d] text-[#8a6a10]" : "border-black/[0.14] text-black/28"
-                  }`}
-                  style={{ minHeight: 48 }}
-                >
-                  {extras.length > 0 ? `${extras.length} · ${total} cal` : <Plus size={14} />}
-                </button>
+              <div
+                key={d.date}
+                className={d.isToday ? "bg-[#fdf9ec] border-l border-r border-b border-[#f0dd9c]" : ""}
+              >
+                <div className="m-[7px]">
+                  <button
+                    onClick={() => openExtras(d.date)}
+                    className={`w-full flex items-center justify-center gap-1.5 rounded-[9px] border border-dashed text-[12.5px] ${
+                      d.isToday ? "border-[#e6cf7d] text-[#8a6a10]" : "border-black/[0.14] text-black/28"
+                    }`}
+                    style={{ minHeight: 48 }}
+                  >
+                    {extras.length > 0 ? `${extras.length} · ${total} cal` : <Plus size={14} />}
+                  </button>
+                </div>
               </div>
             );
           })}

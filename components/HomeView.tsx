@@ -57,6 +57,7 @@ export function HomeView({
   onQuickAdd,
   shoppingListCount,
   onCookToday,
+  onToggleEaten,
 }: {
   recipes: Recipe[];
   days: ReturnType<typeof getNext7Days>;
@@ -68,6 +69,7 @@ export function HomeView({
   onQuickAdd: (name: string) => void;
   shoppingListCount: number;
   onCookToday: (date: string, slot: MealSlot, recipe: Recipe) => void;
+  onToggleEaten: (date: string, slot: MealSlot, eaten: boolean) => void;
 }) {
   const today = days[0];
   const [quickAddName, setQuickAddName] = useState("");
@@ -97,17 +99,13 @@ export function HomeView({
     days.reduce((sum, d) => sum + dayNutrition(d.date).calories, 0) / days.length
   );
 
-  // There's no "eaten" flag in the data model — breakfast/lunch/dinner/snack
-  // are just planned-or-not. Slots are ordered chronologically in
-  // MEAL_SLOTS, so a simple time-of-day cutover approximates "already
-  // happened" vs. "coming up next" without needing to persist anything.
-  const currentSlotIdx = (() => {
-    const hour = new Date().getHours();
-    if (hour < 11) return 0;
-    if (hour < 15) return 1;
-    if (hour < 21) return 2;
-    return 3;
-  })();
+  // "Next up" is simply the first planned-but-not-yet-eaten slot, in
+  // MEAL_SLOTS order — no clock involved, so a meal you're running late on
+  // correctly stays "next" instead of silently handing that off once its
+  // usual time passes.
+  const nextUpIdx = MEAL_SLOTS.findIndex(
+    (slot) => slotDisplayName(todaysPlan[slot], recipes) && !todaysPlan[slot]?.eaten
+  );
   const nutrition = dayNutrition(today.date);
 
   return (
@@ -138,51 +136,69 @@ export function HomeView({
             const recipe = todaysPlan[slot]?.recipeId
               ? recipes.find((r) => r.id === todaysPlan[slot]?.recipeId)
               : null;
-            const isCurrent = idx === currentSlotIdx;
-            const isEaten = Boolean(name) && idx < currentSlotIdx;
+            const isEaten = Boolean(todaysPlan[slot]?.eaten);
+            const isNext = Boolean(name) && idx === nextUpIdx;
             return (
-              <div key={slot} className="bg-white p-4">
+              <button
+                key={slot}
+                type="button"
+                disabled={!name}
+                onClick={() => onToggleEaten(today.date, slot, !isEaten)}
+                className={`bg-white p-4 text-left ${name ? "cursor-pointer hover:bg-black/[0.02]" : "cursor-default"}`}
+              >
                 <div className="flex items-center gap-1.5 mb-1.5">
                   {isEaten ? (
                     <span className="w-[15px] h-[15px] rounded-full bg-[#0f4a35] text-white flex items-center justify-center">
                       <Check size={9} strokeWidth={3} />
                     </span>
-                  ) : isCurrent ? (
+                  ) : isNext ? (
                     <span className="w-[15px] h-[15px] rounded-full border-[1.5px] border-[#8a6a10]" />
                   ) : (
                     <span className="w-[15px] h-[15px] rounded-full border-[1.5px] border-dashed border-black/20" />
                   )}
                   <span
                     className={`text-[10.5px] tracking-[.13em] uppercase font-semibold ${
-                      isEaten ? "text-black/45" : isCurrent ? "text-[#8a6a10]" : "text-black/35"
+                      isEaten ? "text-black/45" : isNext ? "text-[#8a6a10]" : "text-black/35"
                     }`}
                   >
                     {SLOT_LABEL[slot]}
-                    {isCurrent ? " · next" : ""}
+                    {isNext ? " · next" : ""}
                   </span>
                 </div>
                 {name ? (
-                  isCurrent ? (
+                  isEaten ? (
+                    <p className="text-[15px] font-semibold text-black/45 line-through">{name}</p>
+                  ) : isNext ? (
                     <p className="text-[15px] font-semibold text-stone-900 flex items-center gap-2.5 flex-wrap">
                       {name}
                       {recipe && (
-                        <button
-                          onClick={() => onCookToday(today.date, slot, recipe)}
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCookToday(today.date, slot, recipe);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              onCookToday(today.date, slot, recipe);
+                            }
+                          }}
                           className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#b0430c] px-3 py-1.5 rounded-full"
                         >
                           <ChefHat size={12} /> Cook
-                        </button>
+                        </span>
                       )}
                     </p>
                   ) : (
-                    <p className={`text-[15px] font-semibold ${isEaten ? "text-black/45 line-through" : "text-stone-900"}`}>
-                      {name}
-                    </p>
+                    <p className="text-[15px] font-semibold text-stone-900">{name}</p>
                   )
                 ) : (
                   <p className="text-sm text-black/35">Nothing planned</p>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
