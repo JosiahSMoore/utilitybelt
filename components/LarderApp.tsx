@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   Home as HomeIcon,
   BookOpen,
@@ -24,6 +24,7 @@ import {
   Star,
   ChefHat,
   Minus,
+  GripVertical,
   RefreshCw,
   Upload,
   Sparkles,
@@ -1646,6 +1647,38 @@ function RecipeForm({
     setRecipe((r) => ({ ...r, ingredients: r.ingredients.filter((ing) => ing.id !== id) }));
   }
 
+  // Drag-to-reorder via a dedicated handle (pointer events, not native HTML5
+  // drag-and-drop, so it works with touch on iPad) — reorders live as the
+  // dragged row crosses another one, same hit-testing approach as the meal
+  // plan's drag-to-move. The handle is the only draggable target, so it
+  // never fights with clicking into a row's own inputs.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+
+  function beginDragRow(e: ReactPointerEvent, id: string) {
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setDraggingId(id);
+  }
+
+  function handleDragRowMove(e: ReactPointerEvent) {
+    if (!draggingId) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const targetId = (el?.closest("[data-ingredient-row]") as HTMLElement | null)?.dataset.ingredientRow;
+    if (!targetId || targetId === draggingId) return;
+    setRecipe((r) => {
+      const fromIdx = r.ingredients.findIndex((i) => i.id === draggingId);
+      const toIdx = r.ingredients.findIndex((i) => i.id === targetId);
+      if (fromIdx === -1 || toIdx === -1) return r;
+      const next = [...r.ingredients];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return { ...r, ingredients: next };
+    });
+  }
+
+  function endDragRow() {
+    setDraggingId(null);
+  }
+
   function handleSave() {
     if (!recipe.name.trim()) return;
     // Section headers are kept regardless of title (blank is a valid,
@@ -1729,7 +1762,7 @@ function RecipeForm({
         </p>
 
         <div className="space-y-2 mb-3">
-          <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1">
+          <div className="hidden sm:grid grid-cols-12 gap-2 text-[11px] text-stone-400 px-1 pl-7">
             <span className="col-span-4">Ingredient</span>
             <span className="col-span-1">Qty</span>
             <span className="col-span-1">Unit</span>
@@ -1746,26 +1779,41 @@ function RecipeForm({
               <Star size={10} />
             </span>
           </div>
-          {recipe.ingredients.map((ing) =>
-            ing.isSectionHeader ? (
-              <SectionHeaderEditRow
-                key={ing.id}
-                title={ing.name}
-                onChangeTitle={(title) => updateIngredient(ing.id, "name", title)}
-                onRemove={() => removeIngredientRow(ing.id)}
-              />
-            ) : (
-              <IngredientRow
-                key={ing.id}
-                ingredient={ing}
-                library={ingredientLibrary}
-                onChange={(field, value) => updateIngredient(ing.id, field, value)}
-                onRemove={() => removeIngredientRow(ing.id)}
-                disableRemove={realIngredientCount === 1}
-                onSaveNewLibraryIngredient={onSaveLibraryIngredient}
-              />
-            )
-          )}
+          {recipe.ingredients.map((ing) => (
+            <div
+              key={ing.id}
+              data-ingredient-row={ing.id}
+              className={`relative pl-7 transition-opacity ${draggingId === ing.id ? "opacity-40" : ""}`}
+            >
+              <button
+                type="button"
+                onPointerDown={(e) => beginDragRow(e, ing.id)}
+                onPointerMove={handleDragRowMove}
+                onPointerUp={endDragRow}
+                onPointerCancel={endDragRow}
+                title="Drag to reorder"
+                className="absolute left-0 top-2 w-7 h-8 flex items-center justify-center text-stone-300 hover:text-stone-500 cursor-grab touch-none"
+              >
+                <GripVertical size={15} />
+              </button>
+              {ing.isSectionHeader ? (
+                <SectionHeaderEditRow
+                  title={ing.name}
+                  onChangeTitle={(title) => updateIngredient(ing.id, "name", title)}
+                  onRemove={() => removeIngredientRow(ing.id)}
+                />
+              ) : (
+                <IngredientRow
+                  ingredient={ing}
+                  library={ingredientLibrary}
+                  onChange={(field, value) => updateIngredient(ing.id, field, value)}
+                  onRemove={() => removeIngredientRow(ing.id)}
+                  disableRemove={realIngredientCount === 1}
+                  onSaveNewLibraryIngredient={onSaveLibraryIngredient}
+                />
+              )}
+            </div>
+          ))}
         </div>
 
         <div className="flex items-center gap-4 mb-6 flex-wrap">
