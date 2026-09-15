@@ -4004,38 +4004,34 @@ function CookingModeView({
               section.title !== null &&
               activeCategories.includes(section.title.toUpperCase());
             return (
-              <div
-                key={section.key}
-                ref={(el) => {
-                  sectionRefs.current[section.key] = el;
-                }}
-                className={`rounded-xl transition-shadow ${isActiveMatch ? "ring-2 ring-amber-400" : ""}`}
-              >
+              <div key={section.key} ref={(el) => { sectionRefs.current[section.key] = el; }}>
                 {section.title && (
-                  <p className="text-[11px] font-medium text-stone-500 uppercase tracking-wide mb-1.5 px-1">
+                  <p className="text-lg font-medium text-stone-500 uppercase tracking-wide mb-2 px-1">
                     {section.title}
                   </p>
                 )}
-                <div className="space-y-1.5">
+                <div
+                  className={`space-y-2 rounded-xl transition-colors ${isActiveMatch ? "bg-amber-200 p-2 -m-2" : ""}`}
+                >
                   {section.items.map((ing) => {
                     const isChecked = checked.has(ing.id);
                     return (
                       <button
                         key={ing.id}
                         onClick={() => toggleChecked(ing.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left border ${
+                        className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-lg text-left border ${
                           isChecked ? "border-stone-200 bg-stone-100" : "border-stone-200 bg-white hover:bg-stone-50"
                         }`}
                       >
                         <span
-                          className={`w-5 h-5 rounded-full border flex items-center justify-center flex-shrink-0 ${
+                          className={`w-8 h-8 rounded-full border flex items-center justify-center flex-shrink-0 ${
                             isChecked ? "bg-emerald-800 border-emerald-800" : "border-stone-300"
                           }`}
                         >
-                          {isChecked && <Check size={12} className="text-amber-50" />}
+                          {isChecked && <Check size={18} className="text-amber-50" />}
                         </span>
                         <span
-                          className={`flex-1 text-sm ${isChecked ? "line-through text-stone-400" : "text-stone-800"}`}
+                          className={`flex-1 text-xl font-bold ${isChecked ? "line-through text-stone-400" : "text-stone-800"}`}
                         >
                           {ing.name} — {scaleQuantityDisplay(ing.quantity, servingMultiplier)} {ing.unit}
                         </span>
@@ -4109,13 +4105,13 @@ function CookingModeView({
                             ))}
                           </div>
                         )}
-                        <p className="text-stone-800 leading-relaxed">{step.text}</p>
+                        <p className="text-lg text-stone-800 leading-relaxed">{step.text}</p>
                       </div>
                     </li>
                   ))}
                 </ol>
               ) : (
-                <div>
+                <div className="pb-40">
                   {steps[activeStep].categories.length > 0 && (
                     <div className="flex flex-wrap gap-1 mb-3">
                       {steps[activeStep].categories.map((c) => (
@@ -4128,36 +4124,41 @@ function CookingModeView({
                       ))}
                     </div>
                   )}
-                  <p className="font-serif text-2xl md:text-3xl text-stone-900 leading-snug">
+                  <p className="font-serif text-4xl md:text-5xl text-stone-900 leading-snug">
                     {steps[activeStep].text}
                   </p>
-                  <div className="flex items-center justify-between mt-8">
-                    <button
-                      onClick={() => setActiveStep((s) => (s !== null && s > 0 ? s - 1 : s))}
-                      disabled={activeStep === 0}
-                      className="px-4 py-2 rounded-full text-sm font-medium border border-stone-200 text-stone-600 disabled:opacity-30"
-                    >
-                      ← Previous
-                    </button>
-                    <span className="text-xs text-stone-400">
-                      Step {activeStep + 1} of {steps.length}
-                    </span>
-                    <button
-                      onClick={() =>
-                        setActiveStep((s) => (s !== null && s < steps.length - 1 ? s + 1 : s))
-                      }
-                      disabled={activeStep === steps.length - 1}
-                      className="px-4 py-2 rounded-full text-sm font-medium bg-emerald-800 text-amber-50 disabled:opacity-30"
-                    >
-                      Next →
-                    </button>
-                  </div>
                 </div>
               )}
             </>
           )}
         </div>
       </div>
+
+      {activeStep !== null && (
+        <div
+          className={`${
+            mobileTab === "instructions" ? "flex" : "hidden"
+          } md:flex fixed bottom-0 left-0 right-0 md:left-1/3 items-center justify-between px-4 py-5 md:px-8 bg-gradient-to-t from-stone-100 via-stone-100 to-transparent pointer-events-none z-10`}
+        >
+          <button
+            onClick={() => setActiveStep((s) => (s !== null && s > 0 ? s - 1 : s))}
+            disabled={activeStep === 0}
+            className="pointer-events-auto w-20 h-20 rounded-full bg-white border border-stone-200 shadow-md flex items-center justify-center disabled:opacity-30 flex-shrink-0"
+          >
+            <ChevronLeft size={34} className="text-stone-700" />
+          </button>
+          <span className="pointer-events-auto text-xs text-stone-500 font-medium">
+            Step {activeStep + 1} of {steps.length}
+          </span>
+          <button
+            onClick={() => setActiveStep((s) => (s !== null && s < steps.length - 1 ? s + 1 : s))}
+            disabled={activeStep === steps.length - 1}
+            className="pointer-events-auto w-20 h-20 rounded-full bg-emerald-800 text-amber-50 shadow-md flex items-center justify-center disabled:opacity-30 flex-shrink-0"
+          >
+            <ChevronRight size={34} />
+          </button>
+        </div>
+      )}
 
       {confirmingExit && (
         <ConfirmModal
