@@ -1,7 +1,9 @@
 "use client";
 
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Pause, Play, Square, X } from "lucide-react";
+import { useState } from "react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Minus, Pause, Play, Plus, Square, X } from "lucide-react";
 import type { CookingLayoutProps } from "@/components/CookingMode";
+import { extractStepTimerMinutes, stepMentionsMinutes } from "@/components/CookingMode";
 
 // The light iPad/desktop split view (≥820px — CookingMode routes anything
 // narrower to CookingModePhone instead, so this never has to handle a
@@ -22,10 +24,15 @@ export default function CookingModeDesktop({
   sectionRefs,
   timers,
   now,
+  anyTimerRinging,
   pauseTimer,
   resumeTimer,
   addMinuteToTimer,
   clearTimer,
+  addPendingTimer,
+  adjustPendingDuration,
+  setPendingDurationMinutes,
+  startPendingTimer,
   timerForActiveStep,
   activeCategories,
   startTimer,
@@ -43,6 +50,8 @@ export default function CookingModeDesktop({
   formatClock,
   timerRemainingMs,
 }: CookingLayoutProps) {
+  const [editingTimerId, setEditingTimerId] = useState<string | null>(null);
+
   return (
     <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
       {/* Ingredient sidebar */}
@@ -52,20 +61,20 @@ export default function CookingModeDesktop({
           <div className="cook-serif text-[22px] font-semibold tracking-tight text-[var(--cook-ink)]">{recipe.name}</div>
           <div className="flex gap-2 mt-3.5">
             <button
-              onClick={() => setSidebarScope("step")}
-              className={`text-[12.5px] font-semibold px-4 py-2 rounded-full ${
-                sidebarScope === "step" ? "bg-[var(--cook-green)] text-white" : "bg-black/5 text-black/55"
-              }`}
-            >
-              This step
-            </button>
-            <button
               onClick={() => setSidebarScope("all")}
               className={`text-[12.5px] font-semibold px-4 py-2 rounded-full ${
                 sidebarScope === "all" ? "bg-[var(--cook-green)] text-white" : "bg-black/5 text-black/55"
               }`}
             >
               All ingredients
+            </button>
+            <button
+              onClick={() => setSidebarScope("step")}
+              className={`text-[12.5px] font-semibold px-4 py-2 rounded-full ${
+                sidebarScope === "step" ? "bg-[var(--cook-green)] text-white" : "bg-black/5 text-black/55"
+              }`}
+            >
+              This step
             </button>
           </div>
         </div>
@@ -139,9 +148,22 @@ export default function CookingModeDesktop({
         </div>
 
         <div className="px-5 pt-4 pb-5 border-t border-black/[0.07] flex-none">
-          <div className="flex items-baseline justify-between mb-2.5">
-            <span className="text-[10.5px] uppercase tracking-widest font-semibold text-black/45">Timers</span>
-            {timers.length > 0 && <span className="text-[11.5px] text-black/40">{timers.length} running</span>}
+          <div className="flex items-center justify-between mb-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10.5px] uppercase tracking-widest font-semibold text-black/45">Timers</span>
+              <button
+                onClick={addPendingTimer}
+                title="Add a timer"
+                className="w-[18px] h-[18px] rounded-full bg-black/5 hover:bg-black/10 text-black/50 flex items-center justify-center"
+              >
+                <Plus size={11} />
+              </button>
+            </div>
+            {timers.some((t) => t.status === "running") && (
+              <span className="text-[11.5px] text-black/40">
+                {timers.filter((t) => t.status === "running").length} running
+              </span>
+            )}
           </div>
           {timers.length === 0 ? (
             <div className="flex items-center gap-2.5 px-4 py-3.5 rounded-[10px] bg-[var(--cook-row)]">
@@ -151,8 +173,69 @@ export default function CookingModeDesktop({
           ) : (
             <div className="space-y-2">
               {timers.map((t) => {
+                if (t.status === "pending") {
+                  const isEditing = editingTimerId === t.id;
+                  return (
+                    <div key={t.id} className="px-4 py-3.5 rounded-xl bg-[var(--cook-row)]">
+                      <div className="flex items-center justify-center gap-4 mb-2.5">
+                        <button
+                          onClick={() => adjustPendingDuration(t.id, -1)}
+                          className="w-8 h-8 rounded-full bg-white border border-black/10 flex items-center justify-center text-black/60 flex-none"
+                        >
+                          <Minus size={13} />
+                        </button>
+                        {isEditing ? (
+                          <input
+                            type="number"
+                            min={1}
+                            autoFocus
+                            defaultValue={Math.round(t.durationMs / 60_000)}
+                            onFocus={(e) => e.currentTarget.select()}
+                            onBlur={(e) => {
+                              setPendingDurationMinutes(t.id, parseFloat(e.currentTarget.value));
+                              setEditingTimerId(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                            }}
+                            className="w-16 text-center cook-serif text-2xl font-semibold text-[var(--cook-ink)] bg-transparent border-b border-black/20 focus:outline-none"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingTimerId(t.id)}
+                            className="cook-serif text-2xl font-semibold text-[var(--cook-ink)] tabular-nums px-1"
+                          >
+                            {Math.round(t.durationMs / 60_000)} min
+                          </button>
+                        )}
+                        <button
+                          onClick={() => adjustPendingDuration(t.id, 1)}
+                          className="w-8 h-8 rounded-full bg-white border border-black/10 flex items-center justify-center text-black/60 flex-none"
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => startPendingTimer(t.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 h-9 rounded-full bg-[var(--cook-green)] text-white text-sm font-semibold"
+                        >
+                          <Play size={13} /> Start
+                        </button>
+                        <button
+                          onClick={() => clearTimer(t.id)}
+                          className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-black/45 flex-none"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
                 const remaining = timerRemainingMs(t, now);
                 const ringing = remaining <= 0;
+                const running = t.status === "running";
                 const pct = Math.min(100, Math.max(0, 100 - (remaining / t.durationMs) * 100));
                 return (
                   <div
@@ -170,7 +253,7 @@ export default function CookingModeDesktop({
                             ringing ? "text-[var(--cook-orange)]" : "text-[var(--cook-gold-text)]"
                           }`}
                         >
-                          Step {t.stepIndex + 1} · {t.label}
+                          {t.stepIndex !== null ? `Step ${t.stepIndex + 1} · ${t.label}` : t.label}
                         </div>
                         <div className="cook-serif text-[26px] font-semibold tabular-nums leading-none text-[var(--cook-ink)]">
                           {ringing ? "Time's up" : formatClock(remaining)}
@@ -178,11 +261,11 @@ export default function CookingModeDesktop({
                       </div>
                       <div className="flex gap-1.5 flex-none">
                         <button
-                          onClick={() => (t.running ? pauseTimer(t.id) : resumeTimer(t.id))}
-                          title={ringing && t.running ? "Dismiss" : t.running ? "Pause" : "Resume"}
+                          onClick={() => (running ? pauseTimer(t.id) : resumeTimer(t.id))}
+                          title={ringing && running ? "Dismiss" : running ? "Pause" : "Resume"}
                           className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-black/60"
                         >
-                          {ringing && t.running ? <Square size={13} /> : t.running ? <Pause size={14} /> : <Play size={14} />}
+                          {ringing && running ? <Square size={13} /> : running ? <Pause size={14} /> : <Play size={14} />}
                         </button>
                         <button
                           onClick={() => clearTimer(t.id)}
@@ -222,9 +305,9 @@ export default function CookingModeDesktop({
       <div
         onTouchStart={handleStepTouchStart}
         onTouchEnd={handleStepTouchEnd}
-        className={`flex flex-col flex-1 min-h-0 ${
+        className={`flex flex-col flex-1 min-h-0 transition-colors duration-300 ${
           activeStep === null ? "overflow-y-auto" : "overflow-hidden"
-        } bg-[var(--cook-step-bg)] p-4 md:p-6`}
+        } ${anyTimerRinging ? "bg-[#fbbf24]" : "bg-[var(--cook-step-bg)]"} p-4 md:p-6`}
       >
         <div className="flex items-center justify-between gap-2 mb-4 flex-wrap flex-none">
           <div className="flex flex-wrap gap-1.5">
@@ -272,28 +355,32 @@ export default function CookingModeDesktop({
         ) : (
           <>
             {activeStep === null ? (
-              <ol className="space-y-4 max-w-3xl pb-24">
-                {steps.map((step, idx) => (
-                  <li key={idx} className="flex gap-3">
-                    <span className="cook-serif text-lg text-black/35 flex-shrink-0 w-6">{idx + 1}</span>
-                    <div>
-                      {step.categories.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-1">
-                          {step.categories.map((c) => (
-                            <span
-                              key={c}
-                              className="text-[10px] font-bold uppercase tracking-wide bg-[var(--cook-gold-bg)] text-[var(--cook-gold-text)] px-1.5 py-0.5 rounded"
-                            >
-                              {c}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-lg text-[var(--cook-ink)] leading-relaxed">{step.text}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+              // Same centred, capped-width column as the single-step view —
+              // the overview shouldn't sit flush against the sidebar either.
+              <div className="flex justify-center md:px-[48px]">
+                <ol className="w-full max-w-[660px] space-y-4 pb-24">
+                  {steps.map((step, idx) => (
+                    <li key={idx} className="flex gap-3">
+                      <span className="cook-serif text-lg text-black/35 flex-shrink-0 w-6">{idx + 1}</span>
+                      <div>
+                        {step.categories.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mb-1">
+                            {step.categories.map((c) => (
+                              <span
+                                key={c}
+                                className="text-[10px] font-bold uppercase tracking-wide bg-[var(--cook-gold-bg)] text-[var(--cook-gold-text)] px-1.5 py-0.5 rounded"
+                              >
+                                {c}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-lg text-[var(--cook-ink)] leading-relaxed">{step.text}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
             ) : (
               // Centred, capped-width column (not a top-left block) — a
               // short step shouldn't leave two-thirds of the pane empty.
@@ -327,11 +414,15 @@ export default function CookingModeDesktop({
                       </span>
                     </div>
                   ) : (
-                    <div className="flex-none">
-                      <StartTimerControl
-                        onStart={(minutes) => startTimer(activeStep, defaultTimerLabel(activeStep, activeCategories), minutes)}
-                      />
-                    </div>
+                    stepMentionsMinutes(steps[activeStep].text) && (
+                      <div className="flex-none">
+                        <StartTimerControl
+                          key={activeStep}
+                          defaultMinutes={extractStepTimerMinutes(steps[activeStep].text) ?? 10}
+                          onStart={(minutes) => startTimer(activeStep, defaultTimerLabel(activeStep, activeCategories), minutes)}
+                        />
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -341,7 +432,13 @@ export default function CookingModeDesktop({
       </div>
 
       {steps.length > 0 && (
-        <div className="flex fixed bottom-0 left-0 right-0 md:left-[360px] lg:left-[392px] items-center justify-between gap-4 px-4 py-5 md:px-7 bg-gradient-to-t from-[var(--cook-step-bg)] via-[var(--cook-step-bg)] to-transparent pointer-events-none z-10">
+        <div
+          className={`flex fixed bottom-0 left-0 right-0 md:left-[360px] lg:left-[392px] items-center justify-between gap-4 px-4 py-5 md:px-7 pointer-events-none z-10 transition-colors duration-300 ${
+            anyTimerRinging
+              ? "bg-gradient-to-t from-[#fbbf24] via-[#fbbf24] to-transparent"
+              : "bg-gradient-to-t from-[var(--cook-step-bg)] via-[var(--cook-step-bg)] to-transparent"
+          }`}
+        >
           <button
             onClick={goToPrevStep}
             disabled={activeStep === null}

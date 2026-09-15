@@ -91,7 +91,12 @@ export default function CookingModePhone({
   const step = steps[stepIdx];
   const total = steps.length;
   const uncheckedCount = currentStepItems.filter((i) => !checked.has(i.id)).length;
-  const sortedTimers = [...timers].sort((a, b) => timerRemainingMs(a, now) - timerRemainingMs(b, now));
+  // Pending (not-yet-started) timers are only editable from the desktop
+  // sidebar's "+" control for now — the phone dock only shows ones actually
+  // running or paused.
+  const sortedTimers = timers
+    .filter((t) => t.status !== "pending")
+    .sort((a, b) => timerRemainingMs(a, now) - timerRemainingMs(b, now));
   const primaryTimer = sortedTimers[0];
   const secondaryTimers = sortedTimers.slice(1);
   const bigStepText = (step?.text.length ?? 0) <= 220;
@@ -219,7 +224,7 @@ export default function CookingModePhone({
       </div>
 
       {/* Timer dock */}
-      {timers.length > 0 && (
+      {sortedTimers.length > 0 && (
         <div className="px-3.5 pb-1 flex-none space-y-2">
           {[primaryTimer, ...secondaryTimers].map((t, i) => {
             const remaining = timerRemainingMs(t, now);
@@ -237,7 +242,7 @@ export default function CookingModePhone({
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-[10px] tracking-[.13em] uppercase font-bold text-[#e7c95f] mb-0.5 truncate">
-                    Step {t.stepIndex + 1} · {t.label}
+                    {t.stepIndex !== null ? `Step ${t.stepIndex + 1} · ${t.label}` : t.label}
                   </div>
                   <div
                     className="cook-serif font-semibold tabular-nums leading-tight text-[#f6f2e4]"
@@ -263,12 +268,12 @@ export default function CookingModePhone({
                   </button>
                 )}
                 <button
-                  onClick={() => (t.running ? pauseTimer(t.id) : resumeTimer(t.id))}
+                  onClick={() => (t.status === "running" ? pauseTimer(t.id) : resumeTimer(t.id))}
                   className={`rounded-full bg-[rgba(246,242,228,.1)] flex items-center justify-center text-[rgba(246,242,228,.8)] flex-none ${
                     primary ? "w-11 h-11" : "w-8 h-8"
                   }`}
                 >
-                  {t.running ? <Pause size={primary ? 15 : 12} /> : <Play size={primary ? 15 : 12} />}
+                  {t.status === "running" ? <Pause size={primary ? 15 : 12} /> : <Play size={primary ? 15 : 12} />}
                 </button>
                 <button
                   onClick={() => clearTimer(t.id)}
@@ -389,16 +394,16 @@ export default function CookingModePhone({
               <div className="flex-none px-[18px] pb-4 pt-2">
                 <div className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-white border border-[var(--cook-gold-border)]">
                   <span className="text-[10px] tracking-[.13em] uppercase font-bold text-[var(--cook-gold-text)] flex-none">
-                    Step {primaryTimer.stepIndex + 1}
+                    {primaryTimer.stepIndex !== null ? `Step ${primaryTimer.stepIndex + 1}` : primaryTimer.label}
                   </span>
                   <span className="cook-serif text-2xl font-semibold tabular-nums ml-auto text-[var(--cook-ink)]">
                     {formatClock(timerRemainingMs(primaryTimer, now))}
                   </span>
                   <button
-                    onClick={() => (primaryTimer.running ? pauseTimer(primaryTimer.id) : resumeTimer(primaryTimer.id))}
+                    onClick={() => (primaryTimer.status === "running" ? pauseTimer(primaryTimer.id) : resumeTimer(primaryTimer.id))}
                     className="w-10 h-10 rounded-full bg-[var(--cook-row)] border border-black/[0.08] flex items-center justify-center text-black/60 flex-none"
                   >
-                    {primaryTimer.running ? <Pause size={14} /> : <Play size={14} />}
+                    {primaryTimer.status === "running" ? <Pause size={14} /> : <Play size={14} />}
                   </button>
                   <button
                     onClick={() => clearTimer(primaryTimer.id)}

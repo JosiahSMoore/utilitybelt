@@ -17,12 +17,16 @@ import type { Ingredient, Recipe } from "@/lib/types";
 
 export type CookTimer = {
   id: string;
-  stepIndex: number;
+  // null = a general-purpose timer started from the sidebar's "+" button,
+  // not tied to any particular step.
+  stepIndex: number | null;
   label: string;
+  // The "set" duration — doubles as the editable value while `pending`, and
+  // the progress-bar total once running.
   durationMs: number;
-  endsAt: number; // authoritative only while `running`
-  running: boolean;
-  remainingMsWhenPaused: number;
+  endsAt: number; // authoritative only while status === "running"
+  remainingMsWhenPaused: number; // authoritative only while status === "paused"
+  status: "pending" | "running" | "paused";
 };
 
 export type SectionStatus = "general" | "current" | "done" | "future";
@@ -48,15 +52,20 @@ export type CookingLayoutProps = {
   sectionRefs: MutableRefObject<Record<string, HTMLDivElement | null>>;
   timers: CookTimer[];
   now: number;
+  anyTimerRinging: boolean;
   pauseTimer: (id: string) => void;
   resumeTimer: (id: string) => void;
   addMinuteToTimer: (id: string) => void;
   clearTimer: (id: string) => void;
+  addPendingTimer: () => void;
+  adjustPendingDuration: (id: string, deltaMinutes: number) => void;
+  setPendingDurationMinutes: (id: string, minutes: number) => void;
+  startPendingTimer: (id: string) => void;
   timerForActiveStep: CookTimer | undefined;
   activeCategories: string[];
   startTimer: (stepIndex: number, label: string, minutes: number) => void;
   defaultTimerLabel: (stepIndex: number, categories: string[]) => string;
-  StartTimerControl: (props: { onStart: (minutes: number) => void }) => ReactElement;
+  StartTimerControl: (props: { onStart: (minutes: number) => void; defaultMinutes?: number }) => ReactElement;
   goToPrevStep: () => void;
   goToNextStep: () => void;
   handleStepTouchStart: (e: ReactTouchEvent) => void;
@@ -77,7 +86,24 @@ export type CookingLayoutProps = {
 const TIMER_PRESET_MINUTES = [1, 5, 10, 15, 20, 30];
 
 function timerRemainingMs(t: CookTimer, now: number): number {
-  return t.running ? Math.max(0, t.endsAt - now) : t.remainingMsWhenPaused;
+  if (t.status === "running") return Math.max(0, t.endsAt - now);
+  if (t.status === "paused") return t.remainingMsWhenPaused;
+  return t.durationMs; // pending — "remaining" is just the editable set duration
+}
+
+// A step that says "...for 10 minutes" (or just "...a few minutes", with no
+// leading number) offers to start a timer inline; a step that never
+// mentions minutes doesn't — timers stopped being a default part of every
+// step once this shipped.
+const MINUTES_RE = /(\d+(?:\.\d+)?)\s*minutes?\b/i;
+
+export function stepMentionsMinutes(text: string): boolean {
+  return /\bminutes?\b/i.test(text);
+}
+
+export function extractStepTimerMinutes(text: string): number | null {
+  const match = text.match(MINUTES_RE);
+  return match ? parseFloat(match[1]) : null;
 }
 
 function formatClock(ms: number): string {
@@ -159,8 +185,14 @@ function saveCookingState(key: string, state: { checked: string[]; step: number 
   }
 }
 
-function StartTimerControl({ onStart }: { onStart: (minutes: number) => void }) {
-  const [minutes, setMinutes] = useState(10);
+function StartTimerControl({
+  onStart,
+  defaultMinutes = 10,
+}: {
+  onStart: (minutes: number) => void;
+  defaultMinutes?: number;
+}) {
+  const [minutes, setMinutes] = useState(defaultMinutes);
   const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -264,7 +296,7 @@ export default function CookingMode({
   const [checked, setChecked] = useState<Set<string>>(() => new Set(initial.checked));
   const [activeStep, setActiveStep] = useState<number | null>(initial.step);
   const [confirmingExit, setConfirmingExit] = useState(false);
-  const [sidebarScope, setSidebarScope] = useState<"step" | "all">("step");
+  const [sidebarScope, setSidebarScope] = useState<"step" | "all">("all");
   // Per-section manual expand/collapse, overriding whatever the scope's own
   // default would be. Sticky across scope changes and step navigation — once
   // you've opened or closed a category yourself, it stays that way until you
@@ -345,7 +377,7 @@ export default function CookingMode({
   // does the actual timekeeping. Skipped entirely when nothing is running,
   // so an idle cooking session doesn't re-render every second for no reason.
   useEffect(() => {
-    if (!timers.some((t) => t.running)) return;
+    if (!timers.some((t) => t.status === "running")) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [timers]);
@@ -353,10 +385,10 @@ export default function CookingMode({
   // Persistent alarm: as long as a timer is both `running` and expired, this
   // re-fires once per tick (the 1s interval above) — so it keeps beeping
   // until you either clear it or hit the stop-alarm control, which sets
-  // `running: false` and drops it out of this check.
+  // status to "paused" and drops it out of this check.
   const notifiedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    const ringing = timers.filter((t) => t.running && timerRemainingMs(t, now) <= 0);
+    const ringing = timers.filter((t) => t.status === "running" && timerRemainingMs(t, now) <= 0);
     if (ringing.length > 0) playBeep();
     // A one-shot browser notification per timer — only if permission was
     // already granted some other way; never prompt for it from here.
@@ -372,7 +404,7 @@ export default function CookingMode({
       }
     });
     timers.forEach((t) => {
-      if (!t.running || timerRemainingMs(t, now) > 0) notifiedRef.current.delete(t.id);
+      if (t.status !== "running" || timerRemainingMs(t, now) > 0) notifiedRef.current.delete(t.id);
     });
   }, [timers, now, recipe.name]);
 
@@ -498,8 +530,8 @@ export default function CookingMode({
       label,
       durationMs,
       endsAt: Date.now() + durationMs,
-      running: true,
       remainingMsWhenPaused: durationMs,
+      status: "running",
     };
     setTimers((prev) => [...prev, timer]);
   }
@@ -507,8 +539,8 @@ export default function CookingMode({
   function pauseTimer(id: string) {
     setTimers((prev) =>
       prev.map((t) =>
-        t.id === id && t.running
-          ? { ...t, running: false, remainingMsWhenPaused: timerRemainingMs(t, Date.now()) }
+        t.id === id && t.status === "running"
+          ? { ...t, status: "paused", remainingMsWhenPaused: timerRemainingMs(t, Date.now()) }
           : t
       )
     );
@@ -517,7 +549,7 @@ export default function CookingMode({
   function resumeTimer(id: string) {
     setTimers((prev) =>
       prev.map((t) =>
-        t.id === id && !t.running ? { ...t, running: true, endsAt: Date.now() + t.remainingMsWhenPaused } : t
+        t.id === id && t.status === "paused" ? { ...t, status: "running", endsAt: Date.now() + t.remainingMsWhenPaused } : t
       )
     );
   }
@@ -526,13 +558,53 @@ export default function CookingMode({
     setTimers((prev) =>
       prev.map((t) => {
         if (t.id !== id) return t;
-        return t.running ? { ...t, endsAt: t.endsAt + 60_000 } : { ...t, remainingMsWhenPaused: t.remainingMsWhenPaused + 60_000 };
+        return t.status === "running" ? { ...t, endsAt: t.endsAt + 60_000 } : { ...t, remainingMsWhenPaused: t.remainingMsWhenPaused + 60_000 };
       })
     );
   }
 
   function clearTimer(id: string) {
     setTimers((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  // A general-purpose timer, not tied to any step — created idle so its
+  // duration can be dialled in before it actually starts counting down.
+  function addPendingTimer() {
+    const timer: CookTimer = {
+      id: generateId(),
+      stepIndex: null,
+      label: "Timer",
+      durationMs: 5 * 60_000,
+      endsAt: 0,
+      remainingMsWhenPaused: 0,
+      status: "pending",
+    };
+    setTimers((prev) => [...prev, timer]);
+  }
+
+  function adjustPendingDuration(id: string, deltaMinutes: number) {
+    setTimers((prev) =>
+      prev.map((t) =>
+        t.id === id && t.status === "pending"
+          ? { ...t, durationMs: Math.max(60_000, t.durationMs + deltaMinutes * 60_000) }
+          : t
+      )
+    );
+  }
+
+  function setPendingDurationMinutes(id: string, minutes: number) {
+    if (!Number.isFinite(minutes)) return;
+    setTimers((prev) =>
+      prev.map((t) => (t.id === id && t.status === "pending" ? { ...t, durationMs: Math.max(60_000, minutes * 60_000) } : t))
+    );
+  }
+
+  function startPendingTimer(id: string) {
+    setTimers((prev) =>
+      prev.map((t) =>
+        t.id === id && t.status === "pending" ? { ...t, status: "running", endsAt: Date.now() + t.durationMs } : t
+      )
+    );
   }
 
   function confirmExit() {
@@ -551,6 +623,7 @@ export default function CookingMode({
 
   const activeCategories = activeStep !== null ? steps[activeStep]?.categories ?? [] : [];
   const timerForActiveStep = activeStep !== null ? timers.find((t) => t.stepIndex === activeStep) : undefined;
+  const anyTimerRinging = timers.some((t) => t.status === "running" && timerRemainingMs(t, now) <= 0);
 
   function sectionStatus(section: IngredientSection): SectionStatus {
     if (activeStep === null) return "general";
@@ -645,10 +718,15 @@ export default function CookingMode({
     sectionRefs,
     timers,
     now,
+    anyTimerRinging,
     pauseTimer,
     resumeTimer,
     addMinuteToTimer,
     clearTimer,
+    addPendingTimer,
+    adjustPendingDuration,
+    setPendingDurationMinutes,
+    startPendingTimer,
     timerForActiveStep,
     activeCategories,
     startTimer,
