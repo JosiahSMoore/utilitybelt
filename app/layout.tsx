@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Fraunces, Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 
@@ -27,6 +27,16 @@ const sourceSerif = Source_Serif_4({
 export const metadata: Metadata = {
   title: "The Larder",
   description: "Your recipes, meal plan, and shopping list.",
+};
+
+// Pinch-zoom and horizontal scroll are more accident than feature on a
+// kitchen tablet/phone — a stray double-tap or edge-swipe shouldn't ever
+// leave the layout scaled or shifted sideways.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

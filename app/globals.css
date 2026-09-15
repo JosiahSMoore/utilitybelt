@@ -8,6 +8,15 @@ html {
   scrollbar-gutter: stable;
 }
 
+html,
+body {
+  /* Belt-and-suspenders against any element accidentally overflowing the
+     viewport width — the app is centered/responsive by design, so there's
+     never a legitimate reason to pan sideways. */
+  overflow-x: hidden;
+  max-width: 100%;
+}
+
 :root {
   --background: #f5f5f4;
   --foreground: #1c1917;

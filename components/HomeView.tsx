@@ -213,26 +213,26 @@ export function HomeView({
       {/* Quick add + This week */}
       <div className="grid grid-cols-1 md:grid-cols-[1.35fr_1fr] gap-[18px]">
         <div className="bg-white border border-black/[0.07] rounded-2xl p-[22px_24px]">
-          <div className="flex items-baseline gap-2.5 mb-4 flex-wrap">
+          <div className="mb-4">
             <span className="font-display text-lg font-semibold text-stone-900">Quick add to shopping list</span>
-            <span className="ml-auto text-xs text-black/40">{shoppingListCount} items on the list</span>
+            <p className="text-xs text-black/40 mt-1">{shoppingListCount} items on the list</p>
           </div>
           <form onSubmit={submitQuickAdd} className="flex gap-2.5">
             <input
               value={quickAddName}
               onChange={(e) => setQuickAddName(e.target.value)}
               placeholder="e.g. Paper towels"
-              className="flex-1 h-12 px-[18px] rounded-full bg-[#f7f6f3] border border-black/[0.08] text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
+              className="flex-1 min-w-0 h-12 px-[18px] rounded-full bg-[#f7f6f3] border border-black/[0.08] text-base sm:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-700"
             />
             <button
               type="submit"
               disabled={!quickAddName.trim()}
-              className="flex items-center gap-2 h-12 px-6 rounded-full bg-[#0f4a35] text-white text-sm font-semibold disabled:opacity-40"
+              className="flex-none flex items-center gap-2 h-12 px-6 rounded-full bg-[#0f4a35] text-white text-sm font-semibold disabled:opacity-40"
             >
               <Plus size={15} /> Add
             </button>
           </form>
-          <div className="flex flex-wrap items-center gap-1.5 mt-3.5">
+          <div className="hidden sm:flex flex-wrap items-center gap-1.5 mt-3.5">
             {RECENT_SHORTCUTS.map((item) => (
               <button
                 key={item}
