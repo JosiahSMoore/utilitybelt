@@ -86,7 +86,7 @@ function saveTimers(sessionKey: string, timers: CookTimer[]) {
 
 function loadCookingState(key: string): { checked: string[]; step: number | null } {
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = localStorage.getItem(key);
     if (!raw) return { checked: [], step: null };
     const parsed = JSON.parse(raw);
     return {
@@ -100,44 +100,84 @@ function loadCookingState(key: string): { checked: string[]; step: number | null
 
 function saveCookingState(key: string, state: { checked: string[]; step: number | null }) {
   try {
-    sessionStorage.setItem(key, JSON.stringify(state));
+    localStorage.setItem(key, JSON.stringify(state));
   } catch {
-    // sessionStorage unavailable (private mode, etc.) — cooking still works,
+    // localStorage unavailable (private mode, etc.) — cooking still works,
     // it just won't survive an accidental reload.
   }
 }
 
 function StartTimerControl({ onStart }: { onStart: (minutes: number) => void }) {
+  const [minutes, setMinutes] = useState(10);
+  const [open, setOpen] = useState(false);
   const [custom, setCustom] = useState("");
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocPointerDown(e: PointerEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocPointerDown);
+    return () => document.removeEventListener("pointerdown", onDocPointerDown);
+  }, [open]);
+
   return (
-    <div className="mt-8 flex flex-wrap items-center gap-2">
-      {TIMER_PRESET_MINUTES.map((m) => (
+    <div className="mt-8 flex flex-wrap items-center gap-3">
+      <div className="relative" ref={menuRef}>
         <button
-          key={m}
-          onClick={() => onStart(m)}
-          className="text-sm font-semibold px-3.5 py-2.5 rounded-full bg-white border border-black/10 text-[var(--cook-ink)] hover:bg-black/5"
+          onClick={() => setOpen((o) => !o)}
+          className="flex items-center gap-1.5 text-sm font-semibold px-4 py-3.5 rounded-full bg-white border border-black/10 text-[var(--cook-ink)]"
         >
-          {m} min
+          {minutes} min
+          <ChevronDown size={14} className={`text-black/40 transition-transform ${open ? "rotate-180" : ""}`} />
         </button>
-      ))}
-      <input
-        type="number"
-        min={0.5}
-        step={0.5}
-        value={custom}
-        onChange={(e) => setCustom(e.target.value)}
-        placeholder="Custom"
-        className="w-24 text-sm px-3.5 py-2.5 rounded-full border border-black/10 bg-white"
-      />
+        {open && (
+          <div className="absolute z-10 bottom-full mb-2 left-0 bg-white border border-black/10 rounded-xl shadow-lg p-1.5 w-40">
+            {TIMER_PRESET_MINUTES.map((m) => (
+              <button
+                key={m}
+                onClick={() => {
+                  setMinutes(m);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
+                  m === minutes ? "bg-[var(--cook-green)]/10 text-[var(--cook-green)] font-semibold" : "hover:bg-black/5"
+                }`}
+              >
+                {m} min
+              </button>
+            ))}
+            <div className="flex items-center gap-1.5 px-1 pt-1 mt-1 border-t border-black/[0.06]">
+              <input
+                type="number"
+                min={0.5}
+                step={0.5}
+                value={custom}
+                onChange={(e) => setCustom(e.target.value)}
+                placeholder="Custom"
+                className="w-full text-sm px-2.5 py-1.5 rounded-lg border border-black/10 focus:outline-none"
+              />
+              <button
+                onClick={() => {
+                  const n = parseFloat(custom);
+                  if (n > 0) {
+                    setMinutes(n);
+                    setOpen(false);
+                    setCustom("");
+                  }
+                }}
+                className="text-xs font-semibold text-[var(--cook-green)] px-2 flex-none"
+              >
+                Set
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
       <button
-        onClick={() => {
-          const n = parseFloat(custom);
-          if (n > 0) {
-            onStart(n);
-            setCustom("");
-          }
-        }}
-        className="text-sm font-semibold px-5 py-2.5 rounded-full bg-[var(--cook-orange)] text-white"
+        onClick={() => onStart(minutes)}
+        className="text-[13.5px] font-semibold px-[22px] py-3.5 rounded-full bg-[var(--cook-orange)] text-white"
       >
         Start timer
       </button>
@@ -185,7 +225,7 @@ export default function CookingMode({
   const wakeLockRef = useRef<{ release: () => Promise<void> } | null>(null);
   const focusContentRef = useRef<HTMLDivElement | null>(null);
   const stepTextRef = useRef<HTMLParagraphElement | null>(null);
-  const [stepFontSize, setStepFontSize] = useState(42);
+  const [stepFontSize, setStepFontSize] = useState(40);
 
   useEffect(() => {
     saveCookingState(sessionKey, { checked: Array.from(checked), step: activeStep });
@@ -214,7 +254,7 @@ export default function CookingMode({
       const container = focusContentRef.current;
       const textEl = stepTextRef.current;
       if (!container || !textEl) return;
-      const maxFont = window.innerWidth >= 768 ? 42 : 32;
+      const maxFont = window.innerWidth >= 768 ? 40 : 32;
       const minFont = 18;
       let size = maxFont;
       textEl.style.fontSize = `${size}px`;
@@ -243,11 +283,27 @@ export default function CookingMode({
   // re-fires once per tick (the 1s interval above) — so it keeps beeping
   // until you either clear it or hit the stop-alarm control, which sets
   // `running: false` and drops it out of this check.
+  const notifiedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (timers.some((t) => t.running && timerRemainingMs(t, now) <= 0)) {
-      playBeep();
-    }
-  }, [timers, now]);
+    const ringing = timers.filter((t) => t.running && timerRemainingMs(t, now) <= 0);
+    if (ringing.length > 0) playBeep();
+    // A one-shot browser notification per timer — only if permission was
+    // already granted some other way; never prompt for it from here.
+    ringing.forEach((t) => {
+      if (notifiedRef.current.has(t.id)) return;
+      notifiedRef.current.add(t.id);
+      try {
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification(`${t.label} — time's up`, { body: recipe.name, tag: t.id });
+        }
+      } catch {
+        // notifications aren't essential — the visual/audio ringing still shows
+      }
+    });
+    timers.forEach((t) => {
+      if (!t.running || timerRemainingMs(t, now) > 0) notifiedRef.current.delete(t.id);
+    });
+  }, [timers, now, recipe.name]);
 
   useEffect(() => {
     let cancelled = false;
@@ -282,6 +338,34 @@ export default function CookingMode({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // `position: fixed` alone doesn't reliably stop the page behind it from
+  // scrolling under iOS Safari's touch-driven rubber-banding (most visible
+  // as a sliver of the launching page showing through the status bar in
+  // standalone/"Add to Home Screen" mode) — pinning the body in place with a
+  // negative offset, then restoring the scroll position on close, is the
+  // standard fix.
+  useEffect(() => {
+    const scrollY = window.scrollY;
+    const body = document.body;
+    const prev = {
+      position: body.style.position,
+      top: body.style.top,
+      width: body.style.width,
+      overflow: body.style.overflow,
+    };
+    body.style.position = "fixed";
+    body.style.top = `-${scrollY}px`;
+    body.style.width = "100%";
+    body.style.overflow = "hidden";
+    return () => {
+      body.style.position = prev.position;
+      body.style.top = prev.top;
+      body.style.width = prev.width;
+      body.style.overflow = prev.overflow;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
+
   function toggleChecked(id: string) {
     setChecked((prev) => {
       const next = new Set(prev);
@@ -307,10 +391,11 @@ export default function CookingMode({
     });
   }
 
-  // Swipe left/right between steps (iPad, or any touch device) — only while
-  // focused on a single step; a large-enough, mostly-horizontal touch
-  // gesture is treated as a swipe so it doesn't fight with vertical
-  // scrolling of a long step.
+  // Swipe left/right between steps (iPad, or any touch device) — works in
+  // the "All steps" overview too (swiping there just steps into step 1, same
+  // as goToNextStep's own null-handling; swiping back is a no-op since
+  // there's nothing before the overview). A large-enough, mostly-horizontal
+  // gesture is required so it doesn't fight with vertical scrolling.
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   function handleStepTouchStart(e: React.TouchEvent) {
@@ -321,7 +406,7 @@ export default function CookingMode({
   function handleStepTouchEnd(e: React.TouchEvent) {
     const start = touchStartRef.current;
     touchStartRef.current = null;
-    if (!start || activeStep === null) return;
+    if (!start) return;
     const touch = e.changedTouches[0];
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
@@ -378,7 +463,7 @@ export default function CookingMode({
 
   function confirmExit() {
     try {
-      sessionStorage.removeItem(sessionKey);
+      localStorage.removeItem(sessionKey);
     } catch {
       // ignore
     }
@@ -600,13 +685,17 @@ export default function CookingMode({
                       key={t.id}
                       className={`px-4 py-3.5 rounded-xl border ${
                         ringing
-                          ? "bg-[var(--cook-gold-bg)] border-[var(--cook-orange)] animate-pulse"
+                          ? "bg-[var(--cook-orange)]/10 border-[var(--cook-orange)] animate-pulse"
                           : "bg-[var(--cook-step-bg)] border-[var(--cook-gold-border)]"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-[10.5px] uppercase tracking-widest font-bold text-[var(--cook-gold-text)] mb-1 truncate">
+                          <div
+                            className={`text-[10.5px] uppercase tracking-widest font-bold mb-1 truncate ${
+                              ringing ? "text-[var(--cook-orange)]" : "text-[var(--cook-gold-text)]"
+                            }`}
+                          >
                             Step {t.stepIndex + 1} · {t.label}
                           </div>
                           <div className="cook-serif text-[26px] font-semibold tabular-nums leading-none text-[var(--cook-ink)]">
@@ -616,7 +705,7 @@ export default function CookingMode({
                         <div className="flex gap-1.5 flex-none">
                           <button
                             onClick={() => (t.running ? pauseTimer(t.id) : resumeTimer(t.id))}
-                            title={ringing && t.running ? "Stop alarm" : t.running ? "Pause" : "Resume"}
+                            title={ringing && t.running ? "Dismiss" : t.running ? "Pause" : "Resume"}
                             className="w-9 h-9 rounded-full bg-white border border-black/10 flex items-center justify-center text-black/60"
                           >
                             {ringing && t.running ? <Square size={13} /> : t.running ? <Pause size={14} /> : <Play size={14} />}
@@ -629,22 +718,24 @@ export default function CookingMode({
                           </button>
                         </div>
                       </div>
-                      <span className="block h-1 rounded mt-3 relative bg-[var(--cook-gold-text)]/20">
-                        <span
-                          className="absolute left-0 top-0 bottom-0 rounded bg-[var(--cook-gold-text)]"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </span>
                       {!ringing && (
-                        <div className="flex items-center justify-end mt-2">
-                          <button
-                            onClick={() => addMinuteToTimer(t.id)}
-                            className="text-[11.5px] font-semibold text-[var(--cook-gold-text)]"
-                          >
-                            +1 min
-                          </button>
-                        </div>
+                        <span className="block h-1 rounded mt-3 relative bg-[var(--cook-gold-text)]/20">
+                          <span
+                            className="absolute left-0 top-0 bottom-0 rounded bg-[var(--cook-gold-text)]"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </span>
                       )}
+                      <div className="flex items-center justify-end mt-2">
+                        <button
+                          onClick={() => addMinuteToTimer(t.id)}
+                          className={`text-[11.5px] font-semibold ${
+                            ringing ? "text-[var(--cook-orange)]" : "text-[var(--cook-gold-text)]"
+                          }`}
+                        >
+                          +1 min
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -675,17 +766,24 @@ export default function CookingMode({
                   >
                     All steps
                   </button>
-                  {steps.map((_, idx) => (
-                    <button
-                      key={idx}
-                      onClick={() => setActiveStep(idx)}
-                      className={`w-[31px] h-[31px] rounded-full text-[13px] font-bold ${
-                        activeStep === idx ? "bg-[var(--cook-green)] text-white" : "bg-black/5 text-black/50 hover:bg-black/10"
-                      }`}
-                    >
-                      {idx + 1}
-                    </button>
-                  ))}
+                  {steps.map((_, idx) => {
+                    const isDone = activeStep !== null && idx < activeStep;
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setActiveStep(idx)}
+                        className={`w-[31px] h-[31px] rounded-full text-[13px] font-bold flex items-center justify-center ${
+                          activeStep === idx
+                            ? "bg-[var(--cook-green)] text-white"
+                            : isDone
+                              ? "bg-[var(--cook-green)]/10 border border-[var(--cook-green)] text-[var(--cook-green)]"
+                              : "bg-black/5 text-black/50 hover:bg-black/10"
+                        }`}
+                      >
+                        {isDone ? <Check size={14} strokeWidth={3} /> : idx + 1}
+                      </button>
+                    );
+                  })}
                 </>
               )}
             </div>
@@ -725,41 +823,45 @@ export default function CookingMode({
                   ))}
                 </ol>
               ) : (
-                <div ref={focusContentRef} className="flex-1 min-h-0 overflow-hidden flex flex-col max-w-3xl pb-40">
-                  {steps[activeStep].categories.length > 0 && (
-                    <div className="flex-none flex flex-wrap items-center gap-2 mb-5">
-                      {steps[activeStep].categories.map((c) => (
-                        <span
-                          key={c}
-                          className="text-[10.5px] font-bold uppercase tracking-wide bg-[var(--cook-gold-bg)] text-[var(--cook-gold-text)] px-2.5 py-1.5 rounded-md"
-                        >
-                          {c}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                  <p
-                    ref={stepTextRef}
-                    style={{ fontSize: `${stepFontSize}px` }}
-                    className="cook-serif text-[var(--cook-ink)] leading-[1.28] tracking-tight flex-1 min-h-0 overflow-hidden"
-                  >
-                    {steps[activeStep].text}
-                  </p>
+                // Centred, capped-width column (not a top-left block) — a
+                // short step shouldn't leave two-thirds of the pane empty.
+                <div className="flex-1 min-h-0 overflow-hidden flex items-center justify-center md:px-[48px]">
+                  <div ref={focusContentRef} className="w-full max-w-[660px] max-h-full overflow-hidden flex flex-col pb-40">
+                    {steps[activeStep].categories.length > 0 && (
+                      <div className="flex-none flex flex-wrap items-center gap-2 mb-5">
+                        {steps[activeStep].categories.map((c) => (
+                          <span
+                            key={c}
+                            className="text-[10.5px] font-bold uppercase tracking-wide bg-[var(--cook-gold-bg)] text-[var(--cook-gold-text)] px-2.5 py-1.5 rounded-md"
+                          >
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p
+                      ref={stepTextRef}
+                      style={{ fontSize: `${stepFontSize}px` }}
+                      className="cook-serif text-[var(--cook-ink)] leading-[1.28] tracking-tight flex-1 min-h-0 overflow-hidden"
+                    >
+                      {steps[activeStep].text}
+                    </p>
 
-                  {timerForActiveStep ? (
-                    <div className="flex-none mt-8 flex items-center gap-2.5 text-[13.5px] text-black/50">
-                      <span className="w-2 h-2 rounded-full bg-[var(--cook-gold-text)]" />
-                      <span>
-                        {formatClock(timerRemainingMs(timerForActiveStep, now))} timer running — see the sidebar
-                      </span>
-                    </div>
-                  ) : (
-                    <div className="flex-none">
-                      <StartTimerControl
-                        onStart={(minutes) => startTimer(activeStep, defaultTimerLabel(activeStep, activeCategories), minutes)}
-                      />
-                    </div>
-                  )}
+                    {timerForActiveStep ? (
+                      <div className="flex-none mt-8 flex items-center gap-2.5 text-[13.5px] text-black/50">
+                        <span className="w-2 h-2 rounded-full bg-[var(--cook-gold-text)]" />
+                        <span>
+                          {formatClock(timerRemainingMs(timerForActiveStep, now))} timer running — see the sidebar
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="flex-none">
+                        <StartTimerControl
+                          onStart={(minutes) => startTimer(activeStep, defaultTimerLabel(activeStep, activeCategories), minutes)}
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </>
@@ -802,7 +904,7 @@ export default function CookingMode({
             disabled={activeStep !== null && activeStep === steps.length - 1}
             className="pointer-events-auto flex items-center gap-2.5 h-[52px] pl-6 pr-2.5 rounded-full bg-[var(--cook-green)] text-white font-semibold text-[14.5px] disabled:opacity-30 flex-shrink-0"
           >
-            Next step
+            {activeStep !== null && activeStep === steps.length - 1 ? "Finish" : "Next step"}
             <span className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center">
               <ChevronRight size={17} />
             </span>
