@@ -50,3 +50,21 @@ export const CATEGORY_STYLE: Record<string, string> = {
   Snack: "bg-stone-200 text-stone-700",
   Dessert: "bg-rose-200 text-rose-900",
 };
+
+// The recipe card's color rail (a solid edge bar) and matching "ink" label
+// color, so a grid of recipes reads by meal type before any word is read.
+export const CATEGORY_RAIL: Record<string, string> = {
+  Breakfast: "#e0b93a",
+  Lunch: "#4f9c6e",
+  Dinner: "#e8934f",
+  Snack: "#8a9bb0",
+  Dessert: "#d98aa0",
+};
+
+export const CATEGORY_INK: Record<string, string> = {
+  Breakfast: "#7a5a08",
+  Lunch: "#0f4a35",
+  Dinner: "#8a4218",
+  Snack: "#46505c",
+  Dessert: "#8a2b45",
+};

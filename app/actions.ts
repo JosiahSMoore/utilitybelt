@@ -7,6 +7,7 @@ import type {
   DailyExtra,
   IngredientBaseUnit,
   LibraryIngredient,
+  MealPlan,
   MealSlot,
   Recipe,
   RecipeImportPayload,
@@ -127,6 +128,115 @@ export async function clearMealAction(date: string, slot: MealSlot): Promise<voi
     .eq("date", date)
     .eq("slot", slot);
   if (error) throw new Error(error.message);
+}
+
+type MealPlanRow = {
+  date: string;
+  slot: MealSlot;
+  recipe_id: string | null;
+  custom_meal: CustomMeal | null;
+  flex_selection: string[] | null;
+};
+
+// Drag-to-move (or click-to-swap) a meal-plan cell onto another one. Moves
+// into an empty target; swaps both ways if the target is already occupied —
+// never silently overwrites a planned meal. Not a real DB transaction (this
+// project's Supabase client doesn't have one available) but is a single
+// server round trip from the client's perspective, matching the same
+// non-transactional-but-one-call pattern already used by
+// syncShoppingListAction's delete-then-insert.
+export async function moveMealSlotAction(
+  from: { date: string; slot: MealSlot },
+  to: { date: string; slot: MealSlot }
+): Promise<void> {
+  const supabase = createAdminClient();
+
+  const { data: fromRow, error: fromError } = await supabase
+    .from("meal_plan")
+    .select("*")
+    .eq("date", from.date)
+    .eq("slot", from.slot)
+    .maybeSingle<MealPlanRow>();
+  if (fromError) throw new Error(fromError.message);
+  if (!fromRow) throw new Error("There's nothing in that slot to move.");
+
+  const { data: toRow, error: toError } = await supabase
+    .from("meal_plan")
+    .select("*")
+    .eq("date", to.date)
+    .eq("slot", to.slot)
+    .maybeSingle<MealPlanRow>();
+  if (toError) throw new Error(toError.message);
+
+  const { error: writeToError } = await supabase.from("meal_plan").upsert(
+    {
+      date: to.date,
+      slot: to.slot,
+      recipe_id: fromRow.recipe_id,
+      custom_meal: fromRow.custom_meal,
+      flex_selection: fromRow.flex_selection,
+    },
+    { onConflict: "date,slot" }
+  );
+  if (writeToError) throw new Error(writeToError.message);
+
+  if (toRow) {
+    const { error: writeFromError } = await supabase.from("meal_plan").upsert(
+      {
+        date: from.date,
+        slot: from.slot,
+        recipe_id: toRow.recipe_id,
+        custom_meal: toRow.custom_meal,
+        flex_selection: toRow.flex_selection,
+      },
+      { onConflict: "date,slot" }
+    );
+    if (writeFromError) throw new Error(writeFromError.message);
+  } else {
+    const { error: deleteError } = await supabase
+      .from("meal_plan")
+      .delete()
+      .eq("date", from.date)
+      .eq("slot", from.slot);
+    if (deleteError) throw new Error(deleteError.message);
+  }
+}
+
+// The initial page load only fetches meal-plan/extras data for a padded
+// window around today (see lib/server/get-app-data.ts) — paging Meal Plan
+// to a week outside that window needs its own fetch. Called on demand by
+// the client and merged into its already-loaded state.
+export async function getMealPlanRangeAction(
+  start: string,
+  end: string
+): Promise<{ mealPlan: MealPlan; dailyExtras: DailyExtra[] }> {
+  const supabase = createAdminClient();
+
+  const [mealPlanRes, extrasRes] = await Promise.all([
+    supabase.from("meal_plan").select("*").gte("date", start).lte("date", end),
+    supabase.from("daily_extras").select("*").gte("date", start).lte("date", end),
+  ]);
+  if (mealPlanRes.error) throw new Error(mealPlanRes.error.message);
+  if (extrasRes.error) throw new Error(extrasRes.error.message);
+
+  const mealPlan: MealPlan = {};
+  (mealPlanRes.data as MealPlanRow[] | null || []).forEach((row) => {
+    if (!mealPlan[row.date]) mealPlan[row.date] = {};
+    mealPlan[row.date][row.slot] = {
+      recipeId: row.recipe_id,
+      custom: row.custom_meal,
+      flexSelection: row.flex_selection,
+    };
+  });
+
+  const dailyExtras: DailyExtra[] = (extrasRes.data || []).map((row) => ({
+    id: row.id,
+    date: row.date,
+    name: row.name,
+    calories: Number(row.calories) || 0,
+  }));
+
+  return { mealPlan, dailyExtras };
 }
 
 export async function syncShoppingListAction(

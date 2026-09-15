@@ -1,5 +1,7 @@
 export type MealSlot = "breakfast" | "lunch" | "dinner" | "snack";
 
+export type DayNutrition = { calories: number; protein: number; fiber: number };
+
 export type ServingMode = "whole" | "perServing";
 
 export type Ingredient = {
